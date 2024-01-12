@@ -31,7 +31,9 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .insert_resource(Game { game_over: false, score: 0 })
+        .insert_resource(GameOverMenuSelectedButton::Restart)
         .add_event::<GameOverEvent>()
+        .add_event::<ButtonHighlightedEvent>()
         .add_systems(
             Startup,
             (
@@ -45,7 +47,9 @@ fn main() {
         .add_systems(
             Update,
             (
+                menu_navigation.run_if(game_is_over),
                 collide_with_self.run_if(snake_is_big_enough),
+                game_over_menu_selected_button_update.run_if(game_is_over),
                 head_movement.run_if(not(game_is_over)),
                 bevy::window::close_on_esc,
                 drag,
@@ -59,6 +63,71 @@ fn main() {
             ),
         )
         .run();
+}
+
+pub fn menu_navigation(
+    gamepads: Res<Gamepads>,
+    selected_button: Res<GameOverMenuSelectedButton>,
+    buttons: Res<Input<GamepadButton>>,
+    mut ev_button_highlighted: EventWriter<ButtonHighlightedEvent>,
+) {
+    let gamepad = gamepads.iter().next();
+    if let Some(gamepad) = gamepad {
+        let next_button = match *selected_button {
+            GameOverMenuSelectedButton::None => GameOverMenuSelectedButton::Quit,
+            GameOverMenuSelectedButton::Quit => GameOverMenuSelectedButton::Restart,
+            GameOverMenuSelectedButton::Restart => GameOverMenuSelectedButton::Quit,
+        };
+        let prev_button = match *selected_button {
+            GameOverMenuSelectedButton::None => GameOverMenuSelectedButton::Restart,
+            GameOverMenuSelectedButton::Quit => GameOverMenuSelectedButton::Restart,
+            GameOverMenuSelectedButton::Restart => GameOverMenuSelectedButton::Quit,
+        };
+        let left_button = GamepadButton {
+            gamepad,
+            button_type: GamepadButtonType::DPadLeft,
+        };
+        let right_button = GamepadButton {
+            gamepad,
+            button_type: GamepadButtonType::DPadRight,
+        };
+        if buttons.just_pressed(right_button) {
+            ev_button_highlighted.send(ButtonHighlightedEvent(next_button));
+        }
+        if buttons.just_pressed(left_button) {
+            ev_button_highlighted.send(ButtonHighlightedEvent(prev_button));
+        }
+    }
+}
+
+#[derive(Event)]
+pub struct ButtonHighlightedEvent(GameOverMenuSelectedButton);
+
+pub fn game_over_menu_selected_button_update(
+    mut restart_button: Query<&mut BackgroundColor, (With<RestartButton>, Without<QuitButton>)>,
+    mut quit_button: Query<&mut BackgroundColor, (With<QuitButton>, Without<RestartButton>)>,
+    mut highlighted_button: ResMut<GameOverMenuSelectedButton>,
+    mut ev_button_highlighted: EventReader<ButtonHighlightedEvent>,
+) {
+    let mut restart_button = restart_button.single_mut();
+    let mut quit_button = quit_button.single_mut();
+    for selected_button in ev_button_highlighted.read() {
+        match selected_button {
+            ButtonHighlightedEvent(GameOverMenuSelectedButton::None) => {
+                *restart_button = Color::BLUE.into();
+                *quit_button = Color::BLUE.into();
+            }
+            ButtonHighlightedEvent(GameOverMenuSelectedButton::Restart) => {
+                *restart_button = Color::RED.into();
+                *quit_button = Color::BLUE.into();
+            }
+            ButtonHighlightedEvent(GameOverMenuSelectedButton::Quit) => {
+                *restart_button = Color::BLUE.into();
+                *quit_button = Color::RED.into();
+            }
+        }
+        *highlighted_button = selected_button.0.clone();
+    }
 }
 
 pub fn snake_is_big_enough(
@@ -113,23 +182,18 @@ pub struct RestartButton;
 #[derive(Component)]
 pub struct QuitButton;
 
-
 pub fn on_restart_clicked(
     mut commands: Commands,
-    mut interaction_query: Query<
-        (
-            &Interaction,
-            &mut BackgroundColor,
-        ),
-        (Changed<Interaction>, With<RestartButton>),
+    mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<RestartButton>),
     >,
     mut game: ResMut<Game>,
     snake_tail: Query<Entity, With<SnakeTailNode>>,
     mut game_over_visibility: Query<&mut Visibility, With<GameOver>>,
     mut snake_head: Query<(&mut Transform,&mut Velocity), With<Snake>>,
     window: Query<&Window>,
+    mut ev_select_button: EventWriter<ButtonHighlightedEvent>
 ) {
-    for (interaction, mut color) in &mut interaction_query {
+    for interaction in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
                 info!("Restarting game");
@@ -157,45 +221,45 @@ pub fn on_restart_clicked(
                 *snake_head_velocity = Velocity(Vec3::ZERO);
             }
             Interaction::Hovered => {
-                color.0 = Color::RED;
+                ev_select_button.send(ButtonHighlightedEvent(GameOverMenuSelectedButton::Restart));
             }
             Interaction::None => {
-                color.0 = Color::BLUE;
+                ev_select_button.send(ButtonHighlightedEvent(GameOverMenuSelectedButton::None));
             }
         }
     }
 }
 pub fn on_quit_clicked(
-    mut interaction_query: Query<
-        (
-            &Interaction,
-            &mut BackgroundColor,
-        ),
-        (Changed<Interaction>, With<QuitButton>),
-    >,
+    mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<QuitButton>)>,
     mut app_exit_events: EventWriter<AppExit>,
+    mut ev_select_button: EventWriter<ButtonHighlightedEvent>,
 ) {
-    for (interaction, mut color) in &mut interaction_query {
+    for interaction in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
                 app_exit_events.send_default();
             }
             Interaction::Hovered => {
-                color.0 = Color::RED;
+                ev_select_button.send(ButtonHighlightedEvent(GameOverMenuSelectedButton::Quit));
             }
             Interaction::None => {
-                color.0 = Color::BLUE;
+                ev_select_button.send(ButtonHighlightedEvent(GameOverMenuSelectedButton::None));
             }
         }
     }
+}
+
+#[derive(Resource, Clone)]
+pub enum GameOverMenuSelectedButton {
+    Restart,
+    Quit,
+    None,
 }
 
 pub fn game_over_splash(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
-        info!("Drawing Game Over splash screen");
-        // 1. draw "Game Over" splash
         commands.spawn((
             NodeBundle {
                 style: Style {
@@ -255,7 +319,7 @@ pub fn game_over_splash(
                                 ..default()
                             },
                             border_color: BorderColor(Color::BLACK),
-                            background_color: Color::rgb(0.2, 0.4, 0.3).into(),
+                            background_color: BackgroundColor(Color::BLUE),
                             ..default()
                         };
                     parent.spawn(
