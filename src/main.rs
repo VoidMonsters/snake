@@ -9,7 +9,6 @@ use bevy::{
 use rand::{random, Rng};
 
 // visual layers
-#[allow(dead_code)]
 const PLAYER_LAYER: f32 = 0.;
 const FOOD_LAYER: f32 = -1.;
 
@@ -262,8 +261,8 @@ pub fn game_over_splash(
         // 3. handle "restart" and "quit" button presses
 }
 
-const TAIL_NODE_GAP: f32 = 60.;
-const TAIL_CATCHUP_SPEED: f32 = 5.;
+const TAIL_NODE_GAP: f32 = 50.;
+const TAIL_CATCHUP_SPEED: f32 = 7.;
 
 pub fn move_tail(
     time: Res<Time>,
@@ -301,19 +300,15 @@ pub fn consume_food(
         game.score += 1;
         let tail_nodes_vec: Vec<_> = tail_nodes.iter().collect();
         let tail_nodes_count = tail_nodes_vec.len();
-        let last_tail_node = tail_nodes_vec.first();
+        let last_tail_node = tail_nodes_vec.last();
         let offset_origin = match last_tail_node {
             Some((last_tail_node, _)) => last_tail_node.translation,
             None => head.translation,
         };
+        // ----
         let angle_to_offset = if tail_nodes_count >= 2 {
-            let penultimate_tail_node = tail_nodes_vec.get(tail_nodes_count - 2);
-            match penultimate_tail_node {
-                Some((penultimate_tail_node, _)) => {
-                    offset_origin.angle_between(penultimate_tail_node.translation)
-                }
-                None => random(),
-            }
+            let penultimate_tail_node = tail_nodes_vec.get(tail_nodes_count - 2).unwrap();
+            offset_origin.angle_between(penultimate_tail_node.0.translation)
         } else {
             random()
         };
