@@ -45,7 +45,7 @@ fn main() {
         .add_systems(
             Update,
             (
-                collide_with_self,
+                collide_with_self.run_if(snake_is_big_enough),
                 head_movement.run_if(not(game_is_over)),
                 bevy::window::close_on_esc,
                 drag,
@@ -61,6 +61,12 @@ fn main() {
         .run();
 }
 
+pub fn snake_is_big_enough(
+    tail_nodes: Query<(), With<SnakeTailNode>>,
+) -> bool {
+    tail_nodes.iter().collect::<Vec<_>>().len() >= 4
+}
+
 pub fn collide_with_self(
     snake: Query<&Transform, (With<Snake>, Without<SnakeTailNode>)>,
     tail_nodes: Query<(&Transform, &SnakeTailNode), With<SnakeTailNode>>,
@@ -71,7 +77,7 @@ pub fn collide_with_self(
         if *ignore_collision {
             continue;
         }
-        if tail_node.translation.distance(snake.translation) < SNAKE_HEAD_RADIUS {
+        if tail_node.translation.distance(snake.translation) < SNAKE_HEAD_RADIUS * 2. {
             ev_game_over.send_default();
         }
     }
@@ -120,7 +126,7 @@ pub fn on_restart_clicked(
     mut game: ResMut<Game>,
     snake_tail: Query<Entity, With<SnakeTailNode>>,
     mut game_over_visibility: Query<&mut Visibility, With<GameOver>>,
-    mut snake_head: Query<&mut Transform, With<Snake>>,
+    mut snake_head: Query<(&mut Transform,&mut Velocity), With<Snake>>,
     window: Query<&Window>,
 ) {
     for (interaction, mut color) in &mut interaction_query {
@@ -145,8 +151,10 @@ pub fn on_restart_clicked(
                 snake_head_location.y *= boundary_y * 2.;
 
                 snake_head_location.z = PLAYER_LAYER;
-                let mut snake_head = snake_head.single_mut();
+                let snake_head = snake_head.single_mut();
+                let (mut snake_head, mut snake_head_velocity) = snake_head;
                 snake_head.translation = snake_head_location;
+                *snake_head_velocity = Velocity(Vec3::ZERO);
             }
             Interaction::Hovered => {
                 color.0 = Color::RED;
@@ -324,7 +332,6 @@ pub fn consume_food(
             Some((last_tail_node, _)) => last_tail_node.translation,
             None => head.translation,
         };
-        // ----
         let angle_to_offset = if tail_nodes_count >= 2 {
             let penultimate_tail_node = tail_nodes_vec.get(tail_nodes_count - 2).unwrap();
             offset_origin.angle_between(penultimate_tail_node.0.translation)
@@ -336,7 +343,7 @@ pub fn consume_food(
             TAIL_NODE_GAP * angle_to_offset.sin(),
             0.0,
         );
-        let ignore_collision = tail_nodes_count <= 1;
+        let ignore_collision = tail_nodes_count < 1;
         commands.spawn((
             SnakeTailNode(ignore_collision),
             MaterialMesh2dBundle {
