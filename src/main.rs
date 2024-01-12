@@ -1,8 +1,8 @@
 use std::fmt::Write;
 
 use bevy::{
-    app::AppExit,
     prelude::*,
+    app::AppExit,
     sprite::MaterialMesh2dBundle,
 };
 
@@ -25,6 +25,8 @@ fn random_normalized_vector() -> Vec3 {
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .insert_resource(Game { game_over: false, score: 0 })
+        .add_event::<GameOverEvent>()
         .add_systems(
             Startup,
             (
@@ -37,16 +39,197 @@ fn main() {
         .add_systems(
             Update,
             (
-                head_movement,
+                game_over_splash.run_if(game_is_over),
+                head_movement.run_if(not(game_is_over)),
                 bevy::window::close_on_esc,
                 drag,
                 update_debug_output,
                 spawn_food.run_if(any_component_removed::<Food>()),
                 consume_food.run_if(any_with_component::<Food>()),
                 move_tail.run_if(any_with_component::<SnakeTailNode>()),
+                on_quit_clicked.run_if(game_is_over),
+                on_restart_clicked.run_if(game_is_over),
             ),
         )
         .run();
+}
+
+pub fn game_is_over(game: Res<Game>) -> bool {
+    game.game_over
+}
+
+// marker for "Game Over" splash screen and related components
+#[derive(Component)]
+pub struct GameOver;
+
+#[derive(Event, Default)]
+pub struct GameOverEvent;
+
+#[derive(Component)]
+pub struct RestartButton;
+
+#[derive(Component)]
+pub struct QuitButton;
+
+
+pub fn on_restart_clicked(
+    mut commands: Commands,
+    mut interaction_query: Query<
+        (
+            &Interaction,
+            &mut BackgroundColor,
+        ),
+        (Changed<Interaction>, With<RestartButton>),
+    >,
+    mut game: ResMut<Game>,
+    snake_tail: Query<Entity, With<SnakeTailNode>>,
+    game_over_screen: Query<Entity, With<GameOver>>,
+) {
+    for (interaction, mut color) in &mut interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                info!("Restarting game");
+                game.score = 0;
+                game.game_over = false;
+                for tail_node in &snake_tail {
+                    commands.entity(tail_node).despawn();
+                }
+                let game_over_screen = game_over_screen.single();
+                commands.entity(game_over_screen).despawn();
+            }
+            Interaction::Hovered => {
+                color.0 = Color::RED;
+            }
+            Interaction::None => {
+                color.0 = Color::BLUE;
+            }
+        }
+    }
+}
+pub fn on_quit_clicked(
+    mut interaction_query: Query<
+        (
+            &Interaction,
+            &mut BackgroundColor,
+        ),
+        (Changed<Interaction>, With<QuitButton>),
+    >,
+    mut app_exit_events: EventWriter<AppExit>,
+) {
+    for (interaction, mut color) in &mut interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                app_exit_events.send_default();
+            }
+            Interaction::Hovered => {
+                color.0 = Color::RED;
+            }
+            Interaction::None => {
+                color.0 = Color::BLUE;
+            }
+        }
+    }
+}
+
+pub fn game_over_splash(
+    mut commands: Commands,
+    mut ev_gameover: EventReader<GameOverEvent>,
+    asset_server: Res<AssetServer>,
+) {
+    if !ev_gameover.is_empty() {
+        ev_gameover.clear();
+        info!("Drawing Game Over splash screen");
+        // 1. draw "Game Over" splash
+        commands.spawn((
+            NodeBundle {
+                style: Style {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                background_color: Color::rgba(0.,0.,0.,0.5).into(),
+                ..default()
+            },
+            GameOver
+        )).with_children(|parent| {
+            parent.spawn(NodeBundle {
+                style: Style {
+                    flex_direction: FlexDirection::Column,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    border: UiRect::all(Val::Px(2.)),
+                    ..default()
+                },
+                border_color: Color::RED.into(),
+                ..default()
+            }).with_children(|parent| {
+                parent.spawn((
+                    TextBundle::from_section(
+                        "Game Over",
+                        TextStyle {
+                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                            font_size: 72.0,
+                            ..default()
+                        },
+                    ).with_style(Style {
+                        ..default()
+                    }),
+                    Label, // a11y tag
+                ));
+                parent.spawn(NodeBundle {
+                    style: Style {
+                        justify_content: JustifyContent::SpaceBetween,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    ..default()
+                }).with_children(|parent| {
+                    let button = 
+                        ButtonBundle {
+                            style: Style {
+                                // width: Val::Px(150.0),
+                                // height: Val::Px(65.0),
+                                padding: UiRect::all(Val::Px(5.0)),
+                                border: UiRect::all(Val::Px(5.0)),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                ..default()
+                            },
+                            border_color: BorderColor(Color::BLACK),
+                            background_color: Color::rgb(0.2, 0.4, 0.3).into(),
+                            ..default()
+                        };
+                    parent.spawn(
+                        (button.clone(), RestartButton)
+                    ).with_children(|parent| {
+                        parent.spawn(TextBundle::from_section(
+                                "Restart",
+                                TextStyle {
+                                    font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                    font_size: 30.0,
+                                    color: Color::rgb(0.9, 0.9, 0.9),
+                                },
+                        ));
+                    });
+                    parent.spawn(
+                        (button.clone(), QuitButton)
+                    ).with_children(|parent| {
+                        parent.spawn(TextBundle::from_section(
+                                "Quit",
+                                TextStyle {
+                                    font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                    font_size: 30.0,
+                                    color: Color::rgb(0.9, 0.9, 0.9),
+                                },
+                        ));
+                    });
+                });
+            });
+        });
+        // 3. handle "restart" and "quit" button presses
+    }
 }
 
 const TAIL_NODE_GAP: f32 = 60.;
@@ -76,6 +259,7 @@ pub fn consume_food(
     tail_nodes: Query<(&Transform, Entity), With<SnakeTailNode>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut game: ResMut<Game>,
 ) {
     let food = food.single();
     let head = head.single();
@@ -84,6 +268,7 @@ pub fn consume_food(
     if food.translation.distance(head.translation) < (SNAKE_HEAD_RADIUS + FOOD_RADIUS) {
         // food consumed
         commands.entity(food_entity).despawn();
+        game.score += 1;
         let tail_nodes_vec: Vec<_> = tail_nodes.iter().collect();
         let tail_nodes_count = tail_nodes_vec.len();
         let last_tail_node = tail_nodes_vec.first();
@@ -133,24 +318,25 @@ pub fn update_debug_output(
     snakes: Query<(&Transform, &Velocity), With<Snake>>,
     food_location: Query<&Transform, With<Food>>,
     tail_nodes: Query<(), With<SnakeTailNode>>,
+    game: Res<Game>,
 ) {
-    for mut text in &mut texts {
-        let snake = snakes.single();
-        let tail_node_count = tail_nodes.iter().count();
-        let (snake_transform, snake_velocity) = snake;
-        if !food_location.is_empty() {
-            let food_location = food_location.single();
-            let food_location = food_location.translation;
-            text.sections[1].value = format!("Food location: {food_location}\n");
-        }
-        let Velocity(velocity) = *snake_velocity;
-        let position = snake_transform.translation;
-        let mut s = String::new();
-        let _ = write!(s, "Snake head velocity: {velocity}\n");
-        let _ = write!(s, "Snake head position: {position}\n");
-        let _ = write!(s, "Snake tail sections: {tail_node_count}\n");
-        text.sections[0].value = s;
+    let mut text = texts.single_mut();
+    let snake = snakes.single();
+    let tail_node_count = tail_nodes.iter().count();
+    let (snake_transform, snake_velocity) = snake;
+    if !food_location.is_empty() {
+        let food_location = food_location.single();
+        let food_location = food_location.translation;
+        text.sections[1].value = format!("Food location: {food_location}\n");
     }
+    let Velocity(velocity) = *snake_velocity;
+    let position = snake_transform.translation;
+    let mut s = String::new();
+    let _ = write!(s, "Snake head velocity: {velocity}\n");
+    let _ = write!(s, "Snake head position: {position}\n");
+    let _ = write!(s, "Snake tail sections: {tail_node_count}\n");
+    let _ = write!(s, "Score: {0}\n", game.score);
+    text.sections[0].value = s;
 }
 
 pub fn spawn_debug_output(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -262,14 +448,30 @@ fn spawn_food(
     ));
 }
 
+#[derive(Resource)]
+pub struct Game {
+    game_over: bool,
+    score: usize,
+}
+
+impl Game {
+    pub fn new() -> Self {
+        Self {
+            game_over: false,
+            score: 0,
+        }
+    }
+}
+
 fn head_movement(
     time: Res<Time>,
     mut snake: Query<(&mut Transform, &mut Velocity), With<Snake>>,
     keys: Res<Input<KeyCode>>,
-    mut exit: EventWriter<AppExit>,
     window: Query<&Window>,
     gamepads: Res<Gamepads>,
     axes: Res<Axis<GamepadAxis>>,
+    mut game: ResMut<Game>,
+    mut ev_gameover: EventWriter<GameOverEvent>,
 ) {
     let gamepad = gamepads.iter().next();
     let (mut head_transform, mut head_velocity) = snake.single_mut();
@@ -305,9 +507,6 @@ fn head_movement(
     if keys.pressed(KeyCode::A) {
         head_velocity.x -= accel_factor;
     }
-    if keys.pressed(KeyCode::Q) {
-        exit.send(AppExit);
-    }
     head_transform.translation += *head_velocity * time.delta_seconds();
     let window = window.single();
     let mut boundary_x = window.resolution.width() / 2.;
@@ -320,10 +519,8 @@ fn head_movement(
         || head_transform.translation.y < -boundary_y
     {
         // game over
-        *head_velocity = Vec3::ZERO;
-        // 1. draw "Game Over" splash
-        // 2. disable all input except clicking "restart" or "quit" buttons
-        // 3. handle "restart" and "quit" button presses
+        game.game_over = true;
+        ev_gameover.send_default();
     }
     head_transform.translation.x = head_transform.translation.x.clamp(-boundary_x, boundary_x);
     head_transform.translation.y = head_transform.translation.y.clamp(-boundary_y, boundary_y);
