@@ -34,6 +34,7 @@ fn main() {
         .insert_resource(GameOverMenuSelectedButton::Restart)
         .add_event::<GameOverEvent>()
         .add_event::<ButtonHighlightedEvent>()
+        .add_event::<RestartEvent>()
         .add_systems(
             Startup,
             (
@@ -47,6 +48,9 @@ fn main() {
         .add_systems(
             Update,
             (
+                // can only restart the game if the game is over, atm, this may change in the
+                // future so make sure to remove the run condition if it does.
+                restart.run_if(game_is_over), 
                 menu_navigation.run_if(game_is_over),
                 collide_with_self.run_if(snake_is_big_enough),
                 game_over_menu_selected_button_update.run_if(game_is_over),
@@ -70,6 +74,8 @@ pub fn menu_navigation(
     selected_button: Res<GameOverMenuSelectedButton>,
     buttons: Res<Input<GamepadButton>>,
     mut ev_button_highlighted: EventWriter<ButtonHighlightedEvent>,
+    mut ev_restart: EventWriter<RestartEvent>,
+    mut ev_quit: EventWriter<AppExit>,
 ) {
     let gamepad = gamepads.iter().next();
     if let Some(gamepad) = gamepad {
@@ -91,11 +97,28 @@ pub fn menu_navigation(
             gamepad,
             button_type: GamepadButtonType::DPadRight,
         };
+        let a_button = GamepadButton {
+            gamepad,
+            button_type: GamepadButtonType::South,
+        };
         if buttons.just_pressed(right_button) {
             ev_button_highlighted.send(ButtonHighlightedEvent(next_button));
         }
         if buttons.just_pressed(left_button) {
             ev_button_highlighted.send(ButtonHighlightedEvent(prev_button));
+        }
+        if buttons.just_pressed(a_button) {
+            match *selected_button {
+                GameOverMenuSelectedButton::Quit => {
+                    ev_quit.send_default();
+                }
+                GameOverMenuSelectedButton::Restart => {
+                    ev_restart.send_default();
+                }
+                GameOverMenuSelectedButton::None => {
+                    // no-op
+                }
+            }
         }
     }
 }
@@ -182,43 +205,56 @@ pub struct RestartButton;
 #[derive(Component)]
 pub struct QuitButton;
 
-pub fn on_restart_clicked(
+pub fn restart(
+    mut ev_restart: EventReader<RestartEvent>,
     mut commands: Commands,
-    mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<RestartButton>),
-    >,
     mut game: ResMut<Game>,
     snake_tail: Query<Entity, With<SnakeTailNode>>,
     mut game_over_visibility: Query<&mut Visibility, With<GameOver>>,
     mut snake_head: Query<(&mut Transform,&mut Velocity), With<Snake>>,
     window: Query<&Window>,
-    mut ev_select_button: EventWriter<ButtonHighlightedEvent>
+) {
+    if !ev_restart.is_empty() {
+        ev_restart.clear();
+        info!("Restarting game");
+        game.restart();
+        for tail_node in &snake_tail {
+            commands.entity(tail_node).despawn();
+        }
+        let mut game_over_visibility = game_over_visibility.single_mut();
+        *game_over_visibility = Visibility::Hidden;
+        let window = window.single();
+        let mut snake_head_location = Vec3::random();
+        let boundary_x = (window.resolution.width() / 2.) - SNAKE_HEAD_RADIUS;
+        let boundary_y = (window.resolution.height() / 2.) - SNAKE_HEAD_RADIUS;
+
+        snake_head_location.x -= 0.5;
+        snake_head_location.y -= 0.5;
+
+        snake_head_location.x *= boundary_x * 2.;
+        snake_head_location.y *= boundary_y * 2.;
+
+        snake_head_location.z = PLAYER_LAYER;
+        let snake_head = snake_head.single_mut();
+        let (mut snake_head, mut snake_head_velocity) = snake_head;
+        snake_head.translation = snake_head_location;
+        *snake_head_velocity = Velocity(Vec3::ZERO);
+    }
+}
+
+#[derive(Event, Default)]
+pub struct RestartEvent;
+
+pub fn on_restart_clicked(
+    mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<RestartButton>),
+    >,
+    mut ev_select_button: EventWriter<ButtonHighlightedEvent>,
+    mut ev_restart: EventWriter<RestartEvent>,
 ) {
     for interaction in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
-                info!("Restarting game");
-                game.restart();
-                for tail_node in &snake_tail {
-                    commands.entity(tail_node).despawn();
-                }
-                let mut game_over_visibility = game_over_visibility.single_mut();
-                *game_over_visibility = Visibility::Hidden;
-                let window = window.single();
-                let mut snake_head_location = Vec3::random();
-                let boundary_x = (window.resolution.width() / 2.) - SNAKE_HEAD_RADIUS;
-                let boundary_y = (window.resolution.height() / 2.) - SNAKE_HEAD_RADIUS;
-
-                snake_head_location.x -= 0.5;
-                snake_head_location.y -= 0.5;
-
-                snake_head_location.x *= boundary_x * 2.;
-                snake_head_location.y *= boundary_y * 2.;
-
-                snake_head_location.z = PLAYER_LAYER;
-                let snake_head = snake_head.single_mut();
-                let (mut snake_head, mut snake_head_velocity) = snake_head;
-                snake_head.translation = snake_head_location;
-                *snake_head_velocity = Velocity(Vec3::ZERO);
+                ev_restart.send_default();
             }
             Interaction::Hovered => {
                 ev_select_button.send(ButtonHighlightedEvent(GameOverMenuSelectedButton::Restart));
