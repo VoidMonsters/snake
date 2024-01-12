@@ -45,6 +45,7 @@ fn main() {
         .add_systems(
             Update,
             (
+                collide_with_self,
                 head_movement.run_if(not(game_is_over)),
                 bevy::window::close_on_esc,
                 drag,
@@ -60,12 +61,30 @@ fn main() {
         .run();
 }
 
+pub fn collide_with_self(
+    snake: Query<&Transform, (With<Snake>, Without<SnakeTailNode>)>,
+    tail_nodes: Query<(&Transform, &SnakeTailNode), With<SnakeTailNode>>,
+    mut ev_game_over: EventWriter<GameOverEvent>,
+) {
+    let snake = snake.single();
+    for (tail_node, SnakeTailNode(ignore_collision)) in &tail_nodes {
+        if *ignore_collision {
+            continue;
+        }
+        if tail_node.translation.distance(snake.translation) < SNAKE_HEAD_RADIUS {
+            ev_game_over.send_default();
+        }
+    }
+}
+
 pub fn show_game_over(
     mut game_over_visibility: Query<&mut Visibility, With<GameOver>>,
     mut ev_game_over: EventReader<GameOverEvent>,
+    mut game: ResMut<Game>,
     ) {
     if !ev_game_over.is_empty() {
         ev_game_over.clear();
+        game.game_over = true;
         let mut game_over_visibility = game_over_visibility.single_mut();
         *game_over_visibility = Visibility::Visible;
     }
@@ -317,8 +336,9 @@ pub fn consume_food(
             TAIL_NODE_GAP * angle_to_offset.sin(),
             0.0,
         );
+        let ignore_collision = tail_nodes_count <= 1;
         commands.spawn((
-            SnakeTailNode,
+            SnakeTailNode(ignore_collision),
             MaterialMesh2dBundle {
                 mesh: meshes
                     .add(shape::Circle::new(SNAKE_HEAD_RADIUS).into())
@@ -409,7 +429,7 @@ pub fn drag(mut velocities: Query<&mut Velocity>) {
 pub struct Snake;
 
 #[derive(Component)]
-pub struct SnakeTailNode;
+pub struct SnakeTailNode(bool);
 
 const FOOD_RADIUS: f32 = 15.0;
 const SNAKE_HEAD_RADIUS: f32 = 30.0;
@@ -499,7 +519,6 @@ fn head_movement(
     window: Query<&Window>,
     gamepads: Res<Gamepads>,
     axes: Res<Axis<GamepadAxis>>,
-    mut game: ResMut<Game>,
     mut ev_gameover: EventWriter<GameOverEvent>,
 ) {
     let gamepad = gamepads.iter().next();
@@ -548,7 +567,6 @@ fn head_movement(
         || head_transform.translation.y < -boundary_y
     {
         // game over
-        game.game_over = true;
         ev_gameover.send_default();
     }
     head_transform.translation.x = head_transform.translation.x.clamp(-boundary_x, boundary_x);
