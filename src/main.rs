@@ -13,12 +13,18 @@ use rand::{random, Rng};
 const PLAYER_LAYER: f32 = 0.;
 const FOOD_LAYER: f32 = -1.;
 
-fn random_normalized_vector() -> Vec3 {
-    let mut rng = rand::thread_rng();
-    Vec3 {
-        x: rng.gen(),
-        y: rng.gen(),
-        z: rng.gen(),
+trait RandNormalized {
+    fn random() -> Self;
+}
+
+impl RandNormalized for Vec3 {
+    fn random() -> Self {
+        let mut rng = rand::thread_rng();
+        Self {
+            x: rng.gen(),
+            y: rng.gen(),
+            z: rng.gen(),
+        }
     }
 }
 
@@ -34,12 +40,12 @@ fn main() {
                 spawn_snake,
                 spawn_debug_output,
                 spawn_food,
+                game_over_splash,
             ),
         )
         .add_systems(
             Update,
             (
-                game_over_splash.run_if(game_is_over),
                 head_movement.run_if(not(game_is_over)),
                 bevy::window::close_on_esc,
                 drag,
@@ -49,9 +55,21 @@ fn main() {
                 move_tail.run_if(any_with_component::<SnakeTailNode>()),
                 on_quit_clicked.run_if(game_is_over),
                 on_restart_clicked.run_if(game_is_over),
+                show_game_over,
             ),
         )
         .run();
+}
+
+pub fn show_game_over(
+    mut game_over_visibility: Query<&mut Visibility, With<GameOver>>,
+    mut ev_game_over: EventReader<GameOverEvent>,
+    ) {
+    if !ev_game_over.is_empty() {
+        ev_game_over.clear();
+        let mut game_over_visibility = game_over_visibility.single_mut();
+        *game_over_visibility = Visibility::Visible;
+    }
 }
 
 pub fn game_is_over(game: Res<Game>) -> bool {
@@ -83,19 +101,34 @@ pub fn on_restart_clicked(
     >,
     mut game: ResMut<Game>,
     snake_tail: Query<Entity, With<SnakeTailNode>>,
-    game_over_screen: Query<Entity, With<GameOver>>,
+    mut game_over_visibility: Query<&mut Visibility, With<GameOver>>,
+    mut snake_head: Query<&mut Transform, With<Snake>>,
+    window: Query<&Window>,
 ) {
     for (interaction, mut color) in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
                 info!("Restarting game");
-                game.score = 0;
-                game.game_over = false;
+                game.restart();
                 for tail_node in &snake_tail {
                     commands.entity(tail_node).despawn();
                 }
-                let game_over_screen = game_over_screen.single();
-                commands.entity(game_over_screen).despawn();
+                let mut game_over_visibility = game_over_visibility.single_mut();
+                *game_over_visibility = Visibility::Hidden;
+                let window = window.single();
+                let mut snake_head_location = Vec3::random();
+                let boundary_x = (window.resolution.width() / 2.) - SNAKE_HEAD_RADIUS;
+                let boundary_y = (window.resolution.height() / 2.) - SNAKE_HEAD_RADIUS;
+
+                snake_head_location.x -= 0.5;
+                snake_head_location.y -= 0.5;
+
+                snake_head_location.x *= boundary_x * 2.;
+                snake_head_location.y *= boundary_y * 2.;
+
+                snake_head_location.z = PLAYER_LAYER;
+                let mut snake_head = snake_head.single_mut();
+                snake_head.translation = snake_head_location;
             }
             Interaction::Hovered => {
                 color.0 = Color::RED;
@@ -133,11 +166,8 @@ pub fn on_quit_clicked(
 
 pub fn game_over_splash(
     mut commands: Commands,
-    mut ev_gameover: EventReader<GameOverEvent>,
     asset_server: Res<AssetServer>,
 ) {
-    if !ev_gameover.is_empty() {
-        ev_gameover.clear();
         info!("Drawing Game Over splash screen");
         // 1. draw "Game Over" splash
         commands.spawn((
@@ -149,6 +179,7 @@ pub fn game_over_splash(
                     align_items: AlignItems::Center,
                     ..default()
                 },
+                visibility: Visibility::Hidden,
                 background_color: Color::rgba(0.,0.,0.,0.5).into(),
                 ..default()
             },
@@ -229,7 +260,6 @@ pub fn game_over_splash(
             });
         });
         // 3. handle "restart" and "quit" button presses
-    }
 }
 
 const TAIL_NODE_GAP: f32 = 60.;
@@ -424,7 +454,7 @@ fn spawn_food(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let mut food_location: Vec3 = random_normalized_vector();
+    let mut food_location = Vec3::random();
     let window = window.single();
     let boundary_x = (window.resolution.width() / 2.) - FOOD_RADIUS;
     let boundary_y = (window.resolution.height() / 2.) - FOOD_RADIUS;
@@ -460,6 +490,10 @@ impl Game {
             game_over: false,
             score: 0,
         }
+    }
+    pub fn restart(&mut self) {
+        self.game_over = false;
+        self.score = 0;
     }
 }
 
