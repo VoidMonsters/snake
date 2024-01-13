@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::fmt::Write;
 
 use bevy::{
@@ -81,7 +83,7 @@ fn main() {
                 game_over_menu_selected_button_update.run_if(game_is_over),
                 player_input.run_if(not(game_is_over).and_then(not(game_is_paused))),
                 bevy::window::close_on_esc,
-                drag,
+                drag.run_if(not(game_is_paused)),
                 update_debug_output.run_if(debug_output_shown),
                 spawn_food.run_if(any_component_removed::<Food>()),
                 consume_food.run_if(any_with_component::<Food>()),

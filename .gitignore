@@ -1,1 +1,11 @@
+# compiler bullshit
+.xwin-cache
+
+# output directory
 /target
+
+# I sometimes bundle things into a `dist` directory locally for shipping test builds to testers,
+# sorry if it being ignored interrupts your workflow for some reason
+dist/
+# same deal, I use snake.zip to transfer the files from dist/ to the tester
+snake.zip 
