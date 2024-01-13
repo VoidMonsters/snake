@@ -4,6 +4,10 @@ use bevy::{
     prelude::*,
     app::AppExit,
     sprite::MaterialMesh2dBundle,
+    window::{
+        WindowMode,
+        PresentMode,
+    },
 };
 
 use rand::{random, Rng};
@@ -29,7 +33,17 @@ impl RandNormalized for Vec3 {
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    present_mode: PresentMode::AutoVsync,
+                    // Tells wasm to resize the window according to the available canvas
+                    fit_canvas_to_parent: true,
+                    // Tells wasm not to override default event handling, like F5, Ctrl+R etc.
+                    prevent_default_event_handling: false,
+                    ..default()
+                }),
+                ..default()
+            }))
         .insert_resource(Game { game_over: false, score: 0 })
         .insert_resource(GameOverMenuSelectedButton::Restart)
         .insert_resource(PauseState(false)) // game starts unpaused
@@ -57,7 +71,7 @@ fn main() {
                 menu_navigation.run_if(game_is_over),
                 collide_with_self.run_if(snake_is_big_enough),
                 game_over_menu_selected_button_update.run_if(game_is_over),
-                head_movement.run_if(not(game_is_over).and_then(not(game_is_paused))),
+                player_input.run_if(not(game_is_over).and_then(not(game_is_paused))),
                 bevy::window::close_on_esc,
                 drag,
                 update_debug_output,
@@ -656,8 +670,17 @@ pub struct Velocity(Vec3);
 #[derive(Component)]
 pub struct Food;
 
-fn setup(mut commands: Commands) {
+fn setup(
+    mut commands: Commands,
+    mut window: Query<&mut Window>,
+    ) {
     commands.spawn(Camera2dBundle::default());
+    let mut window = window.single_mut();
+    // set the window to fullscreen on startup
+    // reason we defer it until now is so that it will appear on the _current_ monitor
+    // for players with a multi-monitor setup.  Without the delay, it appears on the primary
+    // monitor instead which is maybe not always what the player wanted/expected.
+    let _ = window.mode.set(Box::new(WindowMode::Fullscreen));
 }
 
 fn spawn_food(
@@ -709,17 +732,18 @@ impl Game {
     }
 }
 
-fn head_movement(
+fn player_input(
     time: Res<Time>,
     mut snake: Query<(&mut Transform, &mut Velocity), With<Snake>>,
     mut keys: ResMut<Input<KeyCode>>,
-    window: Query<&Window>,
+    mut window: Query<&mut Window>,
     gamepads: Res<Gamepads>,
     axes: Res<Axis<GamepadAxis>>,
     mut buttons: ResMut<Input<GamepadButton>>,
     mut ev_gameover: EventWriter<GameOverEvent>,
     mut ev_pause: EventWriter<PauseGameEvent>,
 ) {
+    let mut window = window.single_mut();
     let gamepad = gamepads.iter().next();
     let (mut head_transform, mut head_velocity) = snake.single_mut();
     let Velocity(ref mut head_velocity) = *head_velocity;
@@ -749,6 +773,9 @@ fn head_movement(
             ev_pause.send_default();
         }
     }
+    if keys.pressed(KeyCode::F) {
+        let _ = window.mode.set(Box::new(WindowMode::Fullscreen));
+    }
     if keys.pressed(KeyCode::W) {
         head_velocity.y += accel_factor;
     }
@@ -765,7 +792,6 @@ fn head_movement(
         ev_pause.send_default();
     }
     head_transform.translation += *head_velocity * time.delta_seconds();
-    let window = window.single();
     let mut boundary_x = window.resolution.width() / 2.;
     let mut boundary_y = window.resolution.height() / 2.;
     boundary_x -= SNAKE_HEAD_RADIUS;
