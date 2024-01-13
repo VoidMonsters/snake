@@ -231,8 +231,8 @@ pub fn menu_navigation(
 pub struct ButtonHighlightedEvent(GameOverMenuSelectedButton);
 
 pub fn game_over_menu_selected_button_update(
-    mut restart_button: Query<&mut BackgroundColor, (With<RestartButton>, Without<QuitButton>)>,
-    mut quit_button: Query<&mut BackgroundColor, (With<QuitButton>, Without<RestartButton>)>,
+    mut restart_button: Query<&mut Style, (With<RestartButton>, Without<QuitButton>)>,
+    mut quit_button: Query<&mut Style, (With<QuitButton>, Without<RestartButton>)>,
     mut highlighted_button: ResMut<GameOverMenuSelectedButton>,
     mut ev_button_highlighted: EventReader<ButtonHighlightedEvent>,
 ) {
@@ -241,16 +241,22 @@ pub fn game_over_menu_selected_button_update(
     for selected_button in ev_button_highlighted.read() {
         match selected_button {
             ButtonHighlightedEvent(GameOverMenuSelectedButton::None) => {
-                *restart_button = Color::BLUE.into();
-                *quit_button = Color::BLUE.into();
+                restart_button.border = UiRect::default();
+                restart_button.margin.bottom = Val::Px(0.);
+                quit_button.border = UiRect::default();
+                quit_button.margin.bottom = Val::Px(0.);
             }
             ButtonHighlightedEvent(GameOverMenuSelectedButton::Restart) => {
-                *restart_button = Color::RED.into();
-                *quit_button = Color::BLUE.into();
+                restart_button.border = UiRect::bottom(Val::Px(2.));
+                restart_button.margin.bottom = Val::Px(-2.);
+                quit_button.border = UiRect::default();
+                quit_button.margin.bottom = Val::Px(0.);
             }
             ButtonHighlightedEvent(GameOverMenuSelectedButton::Quit) => {
-                *restart_button = Color::BLUE.into();
-                *quit_button = Color::RED.into();
+                restart_button.border = UiRect::default();
+                restart_button.margin.bottom = Val::Px(0.);
+                quit_button.border = UiRect::bottom(Val::Px(2.0));
+                quit_button.margin.bottom = Val::Px(-2.);
             }
         }
         *highlighted_button = selected_button.0.clone();
@@ -423,7 +429,6 @@ pub fn spawn_game_over_splash(
                     border: UiRect::all(Val::Px(2.)),
                     ..default()
                 },
-                border_color: Color::RED.into(),
                 ..default()
             }).with_children(|parent| {
                 parent.spawn((
@@ -453,13 +458,12 @@ pub fn spawn_game_over_splash(
                                 // width: Val::Px(150.0),
                                 // height: Val::Px(65.0),
                                 padding: UiRect::all(Val::Px(5.0)),
-                                border: UiRect::all(Val::Px(5.0)),
                                 justify_content: JustifyContent::Center,
                                 align_items: AlignItems::Center,
                                 ..default()
                             },
-                            border_color: BorderColor(Color::BLACK),
-                            background_color: BackgroundColor(Color::BLUE),
+                            border_color: BorderColor(Color::WHITE),
+                            background_color: BackgroundColor(Color::NONE),
                             ..default()
                         };
                     parent.spawn(
