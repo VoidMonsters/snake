@@ -32,9 +32,11 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .insert_resource(Game { game_over: false, score: 0 })
         .insert_resource(GameOverMenuSelectedButton::Restart)
+        .insert_resource(PauseState(false)) // game starts unpaused
         .add_event::<GameOverEvent>()
         .add_event::<ButtonHighlightedEvent>()
         .add_event::<RestartEvent>()
+        .add_event::<PauseGameEvent>()
         .add_systems(
             Startup,
             (
@@ -42,7 +44,8 @@ fn main() {
                 spawn_snake,
                 spawn_debug_output,
                 spawn_food,
-                game_over_splash,
+                spawn_pause_menu,
+                spawn_game_over_splash,
             ),
         )
         .add_systems(
@@ -54,7 +57,7 @@ fn main() {
                 menu_navigation.run_if(game_is_over),
                 collide_with_self.run_if(snake_is_big_enough),
                 game_over_menu_selected_button_update.run_if(game_is_over),
-                head_movement.run_if(not(game_is_over)),
+                head_movement.run_if(not(game_is_over).and_then(not(game_is_paused))),
                 bevy::window::close_on_esc,
                 drag,
                 update_debug_output,
@@ -64,15 +67,102 @@ fn main() {
                 on_quit_clicked.run_if(game_is_over),
                 on_restart_clicked.run_if(game_is_over),
                 show_game_over,
+                pause_menu_event_handler,
             ),
         )
         .run();
 }
 
+#[derive(Component)]
+pub struct PauseMenu;
+
+pub fn spawn_pause_menu(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
+    commands.spawn((NodeBundle {
+        style: Style {
+            width: Val::Percent(100.),
+            height: Val::Percent(100.),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        visibility: Visibility::Hidden,
+        ..default()
+    }, PauseMenu)).with_children(|parent| {
+        // container 
+        parent.spawn(NodeBundle {
+            style: Style {
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            ..default()
+        }).with_children(|parent| {
+            parent.spawn(TextBundle::from_section(
+                "Paused",
+                TextStyle {
+                    font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                    font_size: 72.0,
+                    color: Color::WHITE,
+                }
+            ));
+        });
+    });
+}
+
+#[derive(Resource)]
+pub struct PauseState(bool);
+
+pub fn game_is_paused(
+    paused: Res<PauseState>,
+) -> bool {
+    paused.0
+}
+
+#[derive(Event, Default)]
+pub struct PauseGameEvent;
+
+pub fn pause_menu_event_handler(
+    mut pause_state: ResMut<PauseState>,
+    mut keys: ResMut<Input<KeyCode>>,
+    gamepads: Res<Gamepads>,
+    mut buttons: ResMut<Input<GamepadButton>>,
+    mut menu_visibility: Query<&mut Visibility, With<PauseMenu>>,
+    mut ev_paused: EventReader<PauseGameEvent>,
+) {
+    let mut menu_visibility = menu_visibility.single_mut();
+    if !ev_paused.is_empty() {
+        ev_paused.clear();
+        *menu_visibility = Visibility::Visible;
+        *pause_state = PauseState(true);
+    }
+    let PauseState(paused) = *pause_state;
+    if paused {
+        if keys.clear_just_pressed(KeyCode::P) {
+            *menu_visibility = Visibility::Hidden;
+            *pause_state = PauseState(false);
+        }
+        let gamepad = gamepads.iter().next();
+        if let Some(gamepad) = gamepad {
+            let start_button = GamepadButton {
+                gamepad,
+                button_type: GamepadButtonType::Start,
+            };
+            if buttons.clear_just_pressed(start_button) {
+                *menu_visibility = Visibility::Hidden;
+                *pause_state = PauseState(false);
+            }
+        }
+    }
+}
+
 pub fn menu_navigation(
     gamepads: Res<Gamepads>,
     selected_button: Res<GameOverMenuSelectedButton>,
-    buttons: Res<Input<GamepadButton>>,
+    mut buttons: ResMut<Input<GamepadButton>>,
     mut ev_button_highlighted: EventWriter<ButtonHighlightedEvent>,
     mut ev_restart: EventWriter<RestartEvent>,
     mut ev_quit: EventWriter<AppExit>,
@@ -101,13 +191,13 @@ pub fn menu_navigation(
             gamepad,
             button_type: GamepadButtonType::South,
         };
-        if buttons.just_pressed(right_button) {
+        if buttons.clear_just_pressed(right_button) {
             ev_button_highlighted.send(ButtonHighlightedEvent(next_button));
         }
-        if buttons.just_pressed(left_button) {
+        if buttons.clear_just_pressed(left_button) {
             ev_button_highlighted.send(ButtonHighlightedEvent(prev_button));
         }
-        if buttons.just_pressed(a_button) {
+        if buttons.clear_just_pressed(a_button) {
             match *selected_button {
                 GameOverMenuSelectedButton::Quit => {
                     ev_quit.send_default();
@@ -292,7 +382,7 @@ pub enum GameOverMenuSelectedButton {
     None,
 }
 
-pub fn game_over_splash(
+pub fn spawn_game_over_splash(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
@@ -622,11 +712,13 @@ impl Game {
 fn head_movement(
     time: Res<Time>,
     mut snake: Query<(&mut Transform, &mut Velocity), With<Snake>>,
-    keys: Res<Input<KeyCode>>,
+    mut keys: ResMut<Input<KeyCode>>,
     window: Query<&Window>,
     gamepads: Res<Gamepads>,
     axes: Res<Axis<GamepadAxis>>,
+    mut buttons: ResMut<Input<GamepadButton>>,
     mut ev_gameover: EventWriter<GameOverEvent>,
+    mut ev_pause: EventWriter<PauseGameEvent>,
 ) {
     let gamepad = gamepads.iter().next();
     let (mut head_transform, mut head_velocity) = snake.single_mut();
@@ -649,6 +741,13 @@ fn head_movement(
             player_requested_velocity *= time.delta_seconds() * analog_accel_factor;
             *head_velocity = *head_velocity + player_requested_velocity;
         }
+        let start_button = GamepadButton {
+            gamepad,
+            button_type: GamepadButtonType::Start,
+        };
+        if buttons.clear_just_pressed(start_button) {
+            ev_pause.send_default();
+        }
     }
     if keys.pressed(KeyCode::W) {
         head_velocity.y += accel_factor;
@@ -661,6 +760,9 @@ fn head_movement(
     }
     if keys.pressed(KeyCode::A) {
         head_velocity.x -= accel_factor;
+    }
+    if keys.clear_just_pressed(KeyCode::P) {
+        ev_pause.send_default();
     }
     head_transform.translation += *head_velocity * time.delta_seconds();
     let window = window.single();
