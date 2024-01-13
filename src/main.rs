@@ -31,6 +31,11 @@ impl RandNormalized for Vec3 {
     }
 }
 
+#[derive(Resource)]
+pub struct DebugSettings {
+    output_shown: bool,
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -47,6 +52,9 @@ fn main() {
         .insert_resource(Game { game_over: false, score: 0 })
         .insert_resource(GameOverMenuSelectedButton::Restart)
         .insert_resource(PauseState(false)) // game starts unpaused
+        .insert_resource(DebugSettings{
+            output_shown: false,
+        })
         .add_event::<GameOverEvent>()
         .add_event::<ButtonHighlightedEvent>()
         .add_event::<RestartEvent>()
@@ -74,7 +82,7 @@ fn main() {
                 player_input.run_if(not(game_is_over).and_then(not(game_is_paused))),
                 bevy::window::close_on_esc,
                 drag,
-                update_debug_output,
+                update_debug_output.run_if(debug_output_shown),
                 spawn_food.run_if(any_component_removed::<Food>()),
                 consume_food.run_if(any_with_component::<Food>()),
                 move_tail.run_if(any_with_component::<SnakeTailNode>()),
@@ -89,6 +97,10 @@ fn main() {
 
 #[derive(Component)]
 pub struct PauseMenu;
+
+pub fn debug_output_shown(debug_settings: Res<DebugSettings>) -> bool {
+    debug_settings.output_shown
+}
 
 pub fn spawn_pause_menu(
     mut commands: Commands,
@@ -601,8 +613,7 @@ pub fn update_debug_output(
 
 pub fn spawn_debug_output(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load("fonts/FiraMono-Medium.ttf");
-    commands.spawn((
-        TextBundle::from_sections([
+    let mut text_bundle = TextBundle::from_sections([
             TextSection::from_style(TextStyle {
                 font: font.clone(),
                 font_size: 20.0,
@@ -621,7 +632,10 @@ pub fn spawn_debug_output(mut commands: Commands, asset_server: Res<AssetServer>
             top: Val::Px(5.0),
             left: Val::Px(15.0),
             ..default()
-        }),
+        });
+    text_bundle.visibility = Visibility::Hidden;
+    commands.spawn((
+        text_bundle,
         DebugOutput,
     ));
 }
@@ -746,6 +760,8 @@ fn player_input(
     mut buttons: ResMut<Input<GamepadButton>>,
     mut ev_gameover: EventWriter<GameOverEvent>,
     mut ev_pause: EventWriter<PauseGameEvent>,
+    mut debug_settings: ResMut<DebugSettings>,
+    mut debug_output_visibility: Query<&mut Visibility, With<DebugOutput>>,
 ) {
     let mut window = window.single_mut();
     let gamepad = gamepads.iter().next();
@@ -775,6 +791,14 @@ fn player_input(
         };
         if buttons.clear_just_pressed(start_button) {
             ev_pause.send_default();
+        }
+    }
+    if keys.clear_just_pressed(KeyCode::F3) {
+        debug_settings.output_shown = !debug_settings.output_shown;
+        let mut debug_output_visibility = debug_output_visibility.single_mut();
+        *debug_output_visibility = match debug_settings.output_shown {
+            true => Visibility::Visible,
+            false => Visibility::Hidden,
         }
     }
     if keys.pressed(KeyCode::F) {
