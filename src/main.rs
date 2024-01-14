@@ -1,6 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::fmt::Write;
+use std::{
+    fs::{self,File},
+    fmt::Write,
+    io::Write as IoWrite,
+};
 
 use bevy::{
     prelude::*,
@@ -38,6 +42,30 @@ pub struct DebugSettings {
     output_shown: bool,
 }
 
+#[derive(Resource)]
+pub struct HighScore;
+
+const HIGHSCORE_FILENAME: &str = "highscore.txt";
+
+impl HighScore {
+    fn get(&self) -> usize {
+        let scorestr = fs::read_to_string(HIGHSCORE_FILENAME);
+        match scorestr {
+            Ok(scorestr) => match scorestr.parse() {
+                Ok(score) => score,
+                Err(_) => 0,
+            },
+            Err(_) => 0,
+        }
+    }
+    fn save(&self, score: usize) {
+        // todo: should this really crash the game, or should it just not save the high score if it
+        // can't open the file?
+        let mut scorefile = File::create(HIGHSCORE_FILENAME).expect("Could not open high score file!");
+        let _ = scorefile.write_all(format!("{score}").as_bytes());
+    }
+}
+
 fn main() {
     App::new()
         .add_plugins((DefaultPlugins.set(WindowPlugin {
@@ -55,6 +83,7 @@ fn main() {
         .insert_resource(Game { game_over: false, score: 0 })
         .insert_resource(GameOverMenuSelectedButton::Restart)
         .insert_resource(PauseState(false)) // game starts unpaused
+        .insert_resource(HighScore)
         .insert_resource(DebugSettings{
             output_shown: false,
         })
@@ -82,6 +111,7 @@ fn main() {
                 restart.run_if(game_is_over), 
                 update_score_output.run_if(not(game_is_paused)),
                 menu_navigation.run_if(game_is_over),
+                update_high_score.run_if(game_is_over),
                 collide_with_self.run_if(snake_is_big_enough),
                 game_over_menu_selected_button_update.run_if(game_is_over),
                 player_input.run_if(not(game_is_over).and_then(not(game_is_paused))),
@@ -98,6 +128,15 @@ fn main() {
             ),
         )
         .run();
+}
+
+pub fn update_high_score(
+    game: Res<Game>,
+    high_score: Res<HighScore>,
+) {
+    if game.score > high_score.get() {
+        high_score.save(game.score);
+    }
 }
 
 #[derive(Component)]
@@ -685,9 +724,10 @@ pub fn spawn_score_output(
 pub fn update_score_output(
     mut score_text: Query<&mut Text, With<ScoreOutput>>,
     game: Res<Game>,
+    high_score: Res<HighScore>,
 ) {
     let mut score_text = score_text.single_mut();
-    score_text.sections[0].value = format!("Score: {0}", game.score);
+    score_text.sections[0].value = format!("Last High Score: {0}\nScore: {1}", high_score.get(), game.score);
 }
 
 #[derive(Component)]

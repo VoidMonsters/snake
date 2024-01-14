@@ -9,3 +9,4 @@
 dist/
 # same deal, I use snake.zip to transfer the files from dist/ to the tester
 snake.zip 
+highscore.txt
