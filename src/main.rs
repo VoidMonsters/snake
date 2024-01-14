@@ -40,7 +40,7 @@ pub struct DebugSettings {
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
+        .add_plugins((DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
                     present_mode: PresentMode::AutoVsync,
                     // Tells wasm to resize the window according to the available canvas
@@ -50,7 +50,8 @@ fn main() {
                     ..default()
                 }),
                 ..default()
-            }))
+            }),
+        ))
         .insert_resource(Game { game_over: false, score: 0 })
         .insert_resource(GameOverMenuSelectedButton::Restart)
         .insert_resource(PauseState(false)) // game starts unpaused
@@ -65,6 +66,7 @@ fn main() {
             Startup,
             (
                 setup,
+                spawn_score_output,
                 spawn_snake,
                 spawn_debug_output,
                 spawn_food,
@@ -78,6 +80,7 @@ fn main() {
                 // can only restart the game if the game is over, atm, this may change in the
                 // future so make sure to remove the run condition if it does.
                 restart.run_if(game_is_over), 
+                update_score_output.run_if(not(game_is_paused)),
                 menu_navigation.run_if(game_is_over),
                 collide_with_self.run_if(snake_is_big_enough),
                 game_over_menu_selected_button_update.run_if(game_is_over),
@@ -654,6 +657,37 @@ pub fn drag(mut velocities: Query<&mut Velocity>) {
         }
         velocity.clamp_length(0.0, MAX_VELOCITY);
     }
+}
+
+#[derive(Component)]
+pub struct ScoreOutput;
+
+pub fn spawn_score_output(
+    mut commands: Commands,
+    game: Res<Game>,
+    asset_server: Res<AssetServer>,
+) {
+    commands.spawn(NodeBundle {
+        style: Style {
+            margin: UiRect::all(Val::Px(15.)),
+            ..default()
+        },
+        ..default()
+    }).with_children(|parent| {
+        parent.spawn((TextBundle::from_section(format!("Score: {0}", game.score), TextStyle {
+            font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+            font_size: 32.0,
+            ..default()
+        }), ScoreOutput));
+    });
+}
+
+pub fn update_score_output(
+    mut score_text: Query<&mut Text, With<ScoreOutput>>,
+    game: Res<Game>,
+) {
+    let mut score_text = score_text.single_mut();
+    score_text.sections[0].value = format!("Score: {0}", game.score);
 }
 
 #[derive(Component)]
