@@ -1,19 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::{
-    fs::{self,File},
     fmt::Write,
+    fs::{self, File},
     io::Write as IoWrite,
 };
 
 use bevy::{
-    prelude::*,
     app::AppExit,
+    prelude::*,
     sprite::MaterialMesh2dBundle,
-    window::{
-        WindowMode,
-        PresentMode,
-    },
+    window::{PresentMode, WindowMode},
 };
 
 use rand::{random, Rng};
@@ -61,30 +58,52 @@ impl HighScore {
     fn save(&self, score: usize) {
         // todo: should this really crash the game, or should it just not save the high score if it
         // can't open the file?
-        let mut scorefile = File::create(HIGHSCORE_FILENAME).expect("Could not open high score file!");
+        let mut scorefile =
+            File::create(HIGHSCORE_FILENAME).expect("Could not open high score file!");
         let _ = scorefile.write_all(format!("{score}").as_bytes());
+    }
+}
+
+const BUTTON_FONT_SIZE: f32 = 30.;
+
+fn get_button() -> ButtonBundle {
+    ButtonBundle {
+        style: Style {
+            // width: Val::Px(150.0),
+            // height: Val::Px(65.0),
+            padding: UiRect::all(Val::Px(5.0)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        border_color: BorderColor(Color::WHITE),
+        background_color: BackgroundColor(Color::NONE),
+        ..default()
     }
 }
 
 fn main() {
     App::new()
         .add_plugins((DefaultPlugins.set(WindowPlugin {
-                primary_window: Some(Window {
-                    present_mode: PresentMode::AutoVsync,
-                    // Tells wasm to resize the window according to the available canvas
-                    fit_canvas_to_parent: true,
-                    // Tells wasm not to override default event handling, like F5, Ctrl+R etc.
-                    prevent_default_event_handling: false,
-                    ..default()
-                }),
+            primary_window: Some(Window {
+                present_mode: PresentMode::AutoVsync,
+                // Tells wasm to resize the window according to the available canvas
+                fit_canvas_to_parent: true,
+                // Tells wasm not to override default event handling, like F5, Ctrl+R etc.
+                prevent_default_event_handling: false,
                 ..default()
             }),
-        ))
-        .insert_resource(Game { game_over: false, score: 0 })
+            ..default()
+        }),))
+        .insert_resource(Game {
+            game_over: false,
+            score: 0,
+        })
         .insert_resource(GameOverMenuSelectedButton::Restart)
+        .insert_resource(PauseMenuSelectedButton::Quit)
         .insert_resource(PauseState(false)) // game starts unpaused
         .insert_resource(HighScore)
-        .insert_resource(DebugSettings{
+        .insert_resource(DebugSettings {
             output_shown: false,
         })
         .add_event::<GameOverEvent>()
@@ -108,7 +127,7 @@ fn main() {
             (
                 // can only restart the game if the game is over, atm, this may change in the
                 // future so make sure to remove the run condition if it does.
-                restart.run_if(game_is_over), 
+                restart.run_if(game_is_over),
                 update_score_output.run_if(not(game_is_paused)),
                 menu_navigation.run_if(game_is_over),
                 update_high_score.run_if(game_is_over),
@@ -121,7 +140,7 @@ fn main() {
                 spawn_food.run_if(any_component_removed::<Food>()),
                 consume_food.run_if(any_with_component::<Food>()),
                 move_tail.run_if(any_with_component::<SnakeTailNode>()),
-                on_quit_clicked.run_if(game_is_over),
+                on_quit_clicked,
                 on_restart_clicked.run_if(game_is_over),
                 show_game_over,
                 pause_menu_event_handler,
@@ -130,10 +149,7 @@ fn main() {
         .run();
 }
 
-pub fn update_high_score(
-    game: Res<Game>,
-    high_score: Res<HighScore>,
-) {
+pub fn update_high_score(game: Res<Game>, high_score: Res<HighScore>) {
     if game.score > high_score.get() {
         high_score.save(game.score);
     }
@@ -146,49 +162,65 @@ pub fn debug_output_shown(debug_settings: Res<DebugSettings>) -> bool {
     debug_settings.output_shown
 }
 
-pub fn spawn_pause_menu(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-) {
-    commands.spawn((NodeBundle {
-        style: Style {
-            width: Val::Percent(100.),
-            height: Val::Percent(100.),
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::Center,
-            ..default()
-        },
-        visibility: Visibility::Hidden,
-        ..default()
-    }, PauseMenu)).with_children(|parent| {
-        // container 
-        parent.spawn(NodeBundle {
-            style: Style {
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
+pub fn spawn_pause_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands
+        .spawn((
+            NodeBundle {
+                style: Style {
+                    width: Val::Percent(100.),
+                    height: Val::Percent(100.),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                },
+                visibility: Visibility::Hidden,
                 ..default()
             },
-            ..default()
-        }).with_children(|parent| {
-            parent.spawn(TextBundle::from_section(
-                "Paused",
-                TextStyle {
-                    font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                    font_size: 72.0,
-                    color: Color::WHITE,
-                }
-            ));
+            PauseMenu,
+        ))
+        .with_children(|parent| {
+            // container
+            parent
+                .spawn(NodeBundle {
+                    style: Style {
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                        ..default()
+                    },
+                    ..default()
+                })
+                .with_children(|parent| {
+                    parent.spawn(TextBundle::from_section(
+                        "Paused",
+                        TextStyle {
+                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                            font_size: 72.0,
+                            color: Color::WHITE,
+                        },
+                    ));
+                    parent
+                        .spawn(NodeBundle { ..default() })
+                        .with_children(|parent| {
+                            parent.spawn((get_button(), QuitButton, PauseMenu)).with_children(|parent| {
+                                parent.spawn(TextBundle::from_section(
+                                    "Quit",
+                                    TextStyle {
+                                        font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                        font_size: BUTTON_FONT_SIZE,
+                                        color: Color::WHITE,
+                                    },)
+                                );
+                            });
+                        });
+                });
         });
-    });
 }
 
 #[derive(Resource)]
 pub struct PauseState(bool);
 
-pub fn game_is_paused(
-    paused: Res<PauseState>,
-) -> bool {
+pub fn game_is_paused(paused: Res<PauseState>) -> bool {
     paused.0
 }
 
@@ -200,9 +232,23 @@ pub fn pause_menu_event_handler(
     mut keys: ResMut<Input<KeyCode>>,
     gamepads: Res<Gamepads>,
     mut buttons: ResMut<Input<GamepadButton>>,
-    mut menu_visibility: Query<&mut Visibility, With<PauseMenu>>,
+    mut menu_visibility: Query<&mut Visibility, (With<PauseMenu>, Without<QuitButton>)>,
     mut ev_paused: EventReader<PauseGameEvent>,
+    mut selected_button: ResMut<PauseMenuSelectedButton>,
+    mut ev_quit: EventWriter<AppExit>,
+    mut quit_button_style: Query<&mut Style, (With<PauseMenu>, With<QuitButton>)>,
 ) {
+    let mut quit_button_style = quit_button_style.single_mut();
+    match *selected_button {
+        PauseMenuSelectedButton::Quit => {
+            quit_button_style.border.bottom = Val::Px(2.);
+            quit_button_style.margin.bottom = Val::Px(-2.);
+        }
+        PauseMenuSelectedButton::None => {
+            quit_button_style.border.bottom = Val::ZERO;
+            quit_button_style.margin.bottom = Val::ZERO;
+        }
+    }
     let mut menu_visibility = menu_visibility.single_mut();
     if !ev_paused.is_empty() {
         ev_paused.clear();
@@ -221,9 +267,35 @@ pub fn pause_menu_event_handler(
                 gamepad,
                 button_type: GamepadButtonType::Start,
             };
+            let left_dpad = GamepadButton {
+                gamepad,
+                button_type: GamepadButtonType::DPadLeft,
+            };
+            let right_dpad = GamepadButton {
+                gamepad,
+                button_type: GamepadButtonType::DPadRight,
+            };
+            let a_button = GamepadButton {
+                gamepad,
+                button_type: GamepadButtonType::South,
+            };
             if buttons.clear_just_pressed(start_button) {
                 *menu_visibility = Visibility::Hidden;
                 *pause_state = PauseState(false);
+            }
+            if buttons.clear_just_pressed(left_dpad) || buttons.clear_just_pressed(right_dpad) {
+                *selected_button = match *selected_button {
+                    PauseMenuSelectedButton::Quit => PauseMenuSelectedButton::None,
+                    PauseMenuSelectedButton::None => PauseMenuSelectedButton::Quit,
+                };
+            }
+            if buttons.clear_just_pressed(a_button) {
+                match *selected_button {
+                    PauseMenuSelectedButton::Quit => {
+                        ev_quit.send_default();
+                    },
+                    PauseMenuSelectedButton::None => {},
+                }
             }
         }
     }
@@ -288,7 +360,7 @@ pub struct ButtonHighlightedEvent(GameOverMenuSelectedButton);
 
 pub fn game_over_menu_selected_button_update(
     mut restart_button: Query<&mut Style, (With<RestartButton>, Without<QuitButton>)>,
-    mut quit_button: Query<&mut Style, (With<QuitButton>, Without<RestartButton>)>,
+    mut quit_button: Query<&mut Style, (With<QuitButton>, Without<RestartButton>, Without<PauseMenu>)>,
     mut highlighted_button: ResMut<GameOverMenuSelectedButton>,
     mut ev_button_highlighted: EventReader<ButtonHighlightedEvent>,
 ) {
@@ -319,9 +391,7 @@ pub fn game_over_menu_selected_button_update(
     }
 }
 
-pub fn snake_is_big_enough(
-    tail_nodes: Query<(), With<SnakeTailNode>>,
-) -> bool {
+pub fn snake_is_big_enough(tail_nodes: Query<(), With<SnakeTailNode>>) -> bool {
     tail_nodes.iter().collect::<Vec<_>>().len() >= 4
 }
 
@@ -345,7 +415,7 @@ pub fn show_game_over(
     mut game_over_visibility: Query<&mut Visibility, With<GameOver>>,
     mut ev_game_over: EventReader<GameOverEvent>,
     mut game: ResMut<Game>,
-    ) {
+) {
     if !ev_game_over.is_empty() {
         ev_game_over.clear();
         game.game_over = true;
@@ -377,7 +447,7 @@ pub fn restart(
     mut game: ResMut<Game>,
     snake_tail: Query<Entity, With<SnakeTailNode>>,
     mut game_over_visibility: Query<&mut Visibility, With<GameOver>>,
-    mut snake_head: Query<(&mut Transform,&mut Velocity), With<Snake>>,
+    mut snake_head: Query<(&mut Transform, &mut Velocity), With<Snake>>,
     window: Query<&Window>,
 ) {
     if !ev_restart.is_empty() {
@@ -412,8 +482,7 @@ pub fn restart(
 pub struct RestartEvent;
 
 pub fn on_restart_clicked(
-    mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<RestartButton>),
-    >,
+    mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<RestartButton>)>,
     mut ev_select_button: EventWriter<ButtonHighlightedEvent>,
     mut ev_restart: EventWriter<RestartEvent>,
 ) {
@@ -458,11 +527,15 @@ pub enum GameOverMenuSelectedButton {
     None,
 }
 
-pub fn spawn_game_over_splash(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-) {
-        commands.spawn((
+#[derive(Resource, Clone)]
+pub enum PauseMenuSelectedButton {
+    Quit,
+    None,
+}
+
+pub fn spawn_game_over_splash(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands
+        .spawn((
             NodeBundle {
                 style: Style {
                     width: Val::Percent(100.0),
@@ -472,84 +545,74 @@ pub fn spawn_game_over_splash(
                     ..default()
                 },
                 visibility: Visibility::Hidden,
-                background_color: Color::rgba(0.,0.,0.,0.5).into(),
+                background_color: Color::rgba(0., 0., 0., 0.5).into(),
                 ..default()
             },
-            GameOver
-        )).with_children(|parent| {
-            parent.spawn(NodeBundle {
-                style: Style {
-                    flex_direction: FlexDirection::Column,
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    border: UiRect::all(Val::Px(2.)),
-                    ..default()
-                },
-                ..default()
-            }).with_children(|parent| {
-                parent.spawn((
-                    TextBundle::from_section(
-                        "Game Over",
-                        TextStyle {
-                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                            font_size: 72.0,
-                            ..default()
-                        },
-                    ).with_style(Style {
-                        ..default()
-                    }),
-                    Label, // a11y tag
-                ));
-                parent.spawn(NodeBundle {
+            GameOver,
+        ))
+        .with_children(|parent| {
+            parent
+                .spawn(NodeBundle {
                     style: Style {
-                        justify_content: JustifyContent::SpaceBetween,
+                        flex_direction: FlexDirection::Column,
+                        justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
+                        border: UiRect::all(Val::Px(2.)),
                         ..default()
                     },
                     ..default()
-                }).with_children(|parent| {
-                    let button = 
-                        ButtonBundle {
+                })
+                .with_children(|parent| {
+                    parent.spawn((
+                        TextBundle::from_section(
+                            "Game Over",
+                            TextStyle {
+                                font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                font_size: 72.0,
+                                ..default()
+                            },
+                        )
+                        .with_style(Style { ..default() }),
+                        Label, // a11y tag
+                    ));
+                    parent
+                        .spawn(NodeBundle {
                             style: Style {
-                                // width: Val::Px(150.0),
-                                // height: Val::Px(65.0),
-                                padding: UiRect::all(Val::Px(5.0)),
-                                justify_content: JustifyContent::Center,
+                                justify_content: JustifyContent::SpaceBetween,
                                 align_items: AlignItems::Center,
                                 ..default()
                             },
-                            border_color: BorderColor(Color::WHITE),
-                            background_color: BackgroundColor(Color::NONE),
                             ..default()
-                        };
-                    parent.spawn(
-                        (button.clone(), RestartButton)
-                    ).with_children(|parent| {
-                        parent.spawn(TextBundle::from_section(
-                                "Restart",
-                                TextStyle {
-                                    font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                                    font_size: 30.0,
-                                    color: Color::rgb(0.9, 0.9, 0.9),
-                                },
-                        ));
-                    });
-                    parent.spawn(
-                        (button.clone(), QuitButton)
-                    ).with_children(|parent| {
-                        parent.spawn(TextBundle::from_section(
-                                "Quit",
-                                TextStyle {
-                                    font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                                    font_size: 30.0,
-                                    color: Color::rgb(0.9, 0.9, 0.9),
-                                },
-                        ));
-                    });
+                        })
+                        .with_children(|parent| {
+                            parent
+                                .spawn((get_button(), RestartButton))
+                                .with_children(|parent| {
+                                    parent.spawn(TextBundle::from_section(
+                                        "Restart",
+                                        TextStyle {
+                                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                            font_size: BUTTON_FONT_SIZE,
+                                            color: Color::rgb(0.9, 0.9, 0.9),
+                                        },
+                                    ));
+                                });
+                            parent
+                                .spawn((get_button(), QuitButton))
+                                .with_children(|parent| {
+                                    parent.spawn(TextBundle::from_section(
+                                        "Quit",
+                                        TextStyle {
+                                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                            font_size: BUTTON_FONT_SIZE,
+                                            color: Color::rgb(0.9, 0.9, 0.9),
+                                        },
+                                    ));
+                                });
+                        });
                 });
-            });
         });
-        // 3. handle "restart" and "quit" button presses
+    // 3. handle "restart" and "quit" button presses
 }
 
 const TAIL_NODE_GAP: f32 = 50.;
@@ -658,30 +721,27 @@ pub fn update_debug_output(
 pub fn spawn_debug_output(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load("fonts/FiraMono-Medium.ttf");
     let mut text_bundle = TextBundle::from_sections([
-            TextSection::from_style(TextStyle {
-                font: font.clone(),
-                font_size: 20.0,
-                color: Color::FUCHSIA,
-                ..default()
-            }),
-            TextSection::from_style(TextStyle {
-                font: font.clone(),
-                font_size: 20.0,
-                color: Color::FUCHSIA,
-                ..default()
-            }),
-        ])
-        .with_style(Style {
-            flex_direction: FlexDirection::Column,
-            top: Val::Px(5.0),
-            left: Val::Px(15.0),
+        TextSection::from_style(TextStyle {
+            font: font.clone(),
+            font_size: 20.0,
+            color: Color::FUCHSIA,
             ..default()
-        });
+        }),
+        TextSection::from_style(TextStyle {
+            font: font.clone(),
+            font_size: 20.0,
+            color: Color::FUCHSIA,
+            ..default()
+        }),
+    ])
+    .with_style(Style {
+        flex_direction: FlexDirection::Column,
+        top: Val::Px(5.0),
+        left: Val::Px(15.0),
+        ..default()
+    });
     text_bundle.visibility = Visibility::Hidden;
-    commands.spawn((
-        text_bundle,
-        DebugOutput,
-    ));
+    commands.spawn((text_bundle, DebugOutput));
 }
 
 const DRAG_COEFFICIENT: f32 = 0.98;
@@ -701,24 +761,28 @@ pub fn drag(mut velocities: Query<&mut Velocity>) {
 #[derive(Component)]
 pub struct ScoreOutput;
 
-pub fn spawn_score_output(
-    mut commands: Commands,
-    game: Res<Game>,
-    asset_server: Res<AssetServer>,
-) {
-    commands.spawn(NodeBundle {
-        style: Style {
-            margin: UiRect::all(Val::Px(15.)),
+pub fn spawn_score_output(mut commands: Commands, game: Res<Game>, asset_server: Res<AssetServer>) {
+    commands
+        .spawn(NodeBundle {
+            style: Style {
+                margin: UiRect::all(Val::Px(15.)),
+                ..default()
+            },
             ..default()
-        },
-        ..default()
-    }).with_children(|parent| {
-        parent.spawn((TextBundle::from_section(format!("Score: {0}", game.score), TextStyle {
-            font: asset_server.load("fonts/FiraMono-Medium.ttf"),
-            font_size: 32.0,
-            ..default()
-        }), ScoreOutput));
-    });
+        })
+        .with_children(|parent| {
+            parent.spawn((
+                TextBundle::from_section(
+                    format!("Score: {0}", game.score),
+                    TextStyle {
+                        font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                        font_size: 32.0,
+                        ..default()
+                    },
+                ),
+                ScoreOutput,
+            ));
+        });
 }
 
 pub fn update_score_output(
@@ -727,7 +791,11 @@ pub fn update_score_output(
     high_score: Res<HighScore>,
 ) {
     let mut score_text = score_text.single_mut();
-    score_text.sections[0].value = format!("Last High Score: {0}\nScore: {1}", high_score.get(), game.score);
+    score_text.sections[0].value = format!(
+        "Last High Score: {0}\nScore: {1}",
+        high_score.get(),
+        game.score
+    );
 }
 
 #[derive(Component)]
@@ -764,10 +832,7 @@ pub struct Velocity(Vec3);
 #[derive(Component)]
 pub struct Food;
 
-fn setup(
-    mut commands: Commands,
-    mut window: Query<&mut Window>,
-    ) {
+fn setup(mut commands: Commands, mut window: Query<&mut Window>) {
     commands.spawn(Camera2dBundle::default());
     let mut window = window.single_mut();
     // set the window to fullscreen on startup
