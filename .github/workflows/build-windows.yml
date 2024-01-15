@@ -24,11 +24,10 @@ jobs:
           mkdir dist
           xcopy /y /s .\assets\* .\dist\
           xcopy /y .\target\release\snake.exe .\dist\
-          tar.exe acvf snake .\dist\*
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v4.1.0
       with:
         # Artifact name
         name: snake.zip
         # A file, directory or wildcard pattern that describes what to upload
-        path: snake.zip
+        path: dist\*
