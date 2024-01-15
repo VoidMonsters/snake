@@ -10,7 +10,6 @@ opt-level = 3
 [dependencies]
 rand = "0.8.5"
 blake3 = { version = "1.5", features=["pure"] } # not actually a dependency of ours, but works around https://github.com/bevyengine/bevy/issues/10425
-gilrs = { version = "0.10.4" }
 
 [dependencies.bevy]
 version = "0.12"
