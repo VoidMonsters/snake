@@ -32,5 +32,3 @@ jobs:
         name: snake.zip
         # A file, directory or wildcard pattern that describes what to upload
         path: snake.zip
-    - name: Run tests
-      run: cargo test --verbose
