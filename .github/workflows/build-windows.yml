@@ -21,8 +21,9 @@ jobs:
       run: cargo build --release --verbose
     - name: Package
       run: |
-          xcopy /y /s .\assets\* .\dist
-          xcopy /y .\target\release\snake.exe .\dist
+          mkdir dist
+          xcopy /y /s .\assets\* .\dist\
+          xcopy /y .\target\release\snake.exe .\dist\
           tar.exe acvf snake.zip .\dist
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v4.1.0
