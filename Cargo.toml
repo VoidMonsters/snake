@@ -29,5 +29,5 @@ features = [
 	"wayland",
 
 	# dev/debug features -- disable these before doing a release build!
-	"dynamic_linking",
+	# "dynamic_linking",
 ]
