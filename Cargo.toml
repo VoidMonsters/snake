@@ -22,6 +22,14 @@ features = [
 	"bevy_text",
 	"bevy_ui",
 	"bevy_gilrs",
+	"bevy_pbr",
+
+	# file formats
+	"png",
+
+	# shader formats
+	"shader_format_spirv",
+
 
 	# platform support
 	"x11",

@@ -9,7 +9,13 @@ use std::{
 use bevy::{
     app::AppExit,
     prelude::*,
-    sprite::MaterialMesh2dBundle,
+    render::render_resource::{
+        ShaderRef, 
+        AsBindGroup,
+    },
+    sprite::{
+        MaterialMesh2dBundle,
+    },
     window::{PresentMode, WindowMode},
 };
 
@@ -84,20 +90,24 @@ fn get_button() -> ButtonBundle {
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                present_mode: PresentMode::AutoVsync,
-                // Tells wasm to resize the window according to the available canvas
-                fit_canvas_to_parent: true,
-                // Tells wasm not to override default event handling, like F5, Ctrl+R etc.
-                prevent_default_event_handling: false,
+        .add_plugins((
+            DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    present_mode: PresentMode::AutoVsync,
+                    // Tells wasm to resize the window according to the available canvas
+                    fit_canvas_to_parent: true,
+                    // Tells wasm not to override default event handling, like F5, Ctrl+R etc.
+                    prevent_default_event_handling: false,
+                    ..default()
+                }),
                 ..default()
             }),
-            ..default()
-        }),))
+            MaterialPlugin::<HealthbarMaterial>::default(),
+        ))
         .insert_resource(Game {
             game_over: false,
             score: 0,
+            coins: 0.,
         })
         .insert_resource(GameOverMenuSelectedButton::Restart)
         .insert_resource(PauseMenuSelectedButton::Quit)
@@ -115,6 +125,7 @@ fn main() {
             (
                 setup,
                 spawn_score_output,
+                spawn_coins_output,
                 spawn_snake,
                 spawn_debug_output,
                 spawn_food,
@@ -129,6 +140,7 @@ fn main() {
                 // future so make sure to remove the run condition if it does.
                 restart.run_if(game_is_over),
                 update_score_output.run_if(not(game_is_paused)),
+                update_coins_output.run_if(not(game_is_paused)),
                 menu_navigation.run_if(game_is_over),
                 update_high_score.run_if(game_is_over),
                 collide_with_self.run_if(snake_is_big_enough),
@@ -137,8 +149,11 @@ fn main() {
                 bevy::window::close_on_esc,
                 drag.run_if(not(game_is_paused)),
                 update_debug_output.run_if(debug_output_shown),
+                spawn_coins
+                    .run_if(not(any_with_component::<CoinBag>()).and_then(random_chance(0.02))),
+                coinbag_leak.run_if(any_with_component::<CoinBag>()),
                 spawn_food.run_if(any_component_removed::<Food>()),
-                consume_food.run_if(any_with_component::<Food>()),
+                consume_items.run_if(any_with_component::<Food>().or_else(any_with_component::<CoinBag>())),
                 move_tail.run_if(any_with_component::<SnakeTailNode>()),
                 on_quit_clicked,
                 on_restart_clicked.run_if(game_is_over),
@@ -153,6 +168,44 @@ pub fn update_high_score(game: Res<Game>, high_score: Res<HighScore>) {
     if game.score > high_score.get() {
         high_score.save(game.score);
     }
+}
+
+pub fn random_chance(chance: f32) -> impl FnMut() -> bool {
+    move || -> bool { random::<f32>() < chance }
+}
+
+#[derive(Component)]
+pub struct CoinBag {
+    value: f32
+}
+
+pub fn spawn_coins(mut commands: Commands, asset_server: Res<AssetServer>, window: Query<&Window>) {
+    let mut coins_location = Vec3::random();
+    let window = window.single();
+    let boundary_x = (window.resolution.width() / 2.) - 128.; // todo: don't hard-code this
+    let boundary_y = (window.resolution.height() / 2.) - 128.;
+
+    coins_location.x -= 0.5;
+    coins_location.y -= 0.5;
+
+    coins_location.x *= boundary_x * 2.;
+    coins_location.y *= boundary_y * 2.;
+
+    coins_location.z = FOOD_LAYER;
+    commands.spawn((
+        CoinBag {
+            value: (rand::thread_rng().gen_range(8.0..12.0f32) * 100.0).round() / 100.0,
+        },
+        SpriteBundle {
+            texture: asset_server.load("sprites/coinbag.png"),
+            transform: Transform {
+                translation: coins_location,
+                scale: Vec3::new(0.3, 0.3, 1.0),
+                ..default()
+            },
+            ..default()
+        },
+    ));
 }
 
 #[derive(Component)]
@@ -202,16 +255,18 @@ pub fn spawn_pause_menu(mut commands: Commands, asset_server: Res<AssetServer>) 
                     parent
                         .spawn(NodeBundle { ..default() })
                         .with_children(|parent| {
-                            parent.spawn((get_button(), QuitButton, PauseMenu)).with_children(|parent| {
-                                parent.spawn(TextBundle::from_section(
-                                    "Quit",
-                                    TextStyle {
-                                        font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                                        font_size: BUTTON_FONT_SIZE,
-                                        color: Color::WHITE,
-                                    },)
-                                );
-                            });
+                            parent
+                                .spawn((get_button(), QuitButton, PauseMenu))
+                                .with_children(|parent| {
+                                    parent.spawn(TextBundle::from_section(
+                                        "Quit",
+                                        TextStyle {
+                                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                            font_size: BUTTON_FONT_SIZE,
+                                            color: Color::WHITE,
+                                        },
+                                    ));
+                                });
                         });
                 });
         });
@@ -293,8 +348,8 @@ pub fn pause_menu_event_handler(
                 match *selected_button {
                     PauseMenuSelectedButton::Quit => {
                         ev_quit.send_default();
-                    },
-                    PauseMenuSelectedButton::None => {},
+                    }
+                    PauseMenuSelectedButton::None => {}
                 }
             }
         }
@@ -360,7 +415,10 @@ pub struct ButtonHighlightedEvent(GameOverMenuSelectedButton);
 
 pub fn game_over_menu_selected_button_update(
     mut restart_button: Query<&mut Style, (With<RestartButton>, Without<QuitButton>)>,
-    mut quit_button: Query<&mut Style, (With<QuitButton>, Without<RestartButton>, Without<PauseMenu>)>,
+    mut quit_button: Query<
+        &mut Style,
+        (With<QuitButton>, Without<RestartButton>, Without<PauseMenu>),
+    >,
     mut highlighted_button: ResMut<GameOverMenuSelectedButton>,
     mut ev_button_highlighted: EventReader<ButtonHighlightedEvent>,
 ) {
@@ -448,6 +506,8 @@ pub fn restart(
     snake_tail: Query<Entity, With<SnakeTailNode>>,
     mut game_over_visibility: Query<&mut Visibility, With<GameOver>>,
     mut snake_head: Query<(&mut Transform, &mut Velocity), With<Snake>>,
+    food_entity: Query<Entity, With<Food>>,
+    coinbag_entity: Query<Entity, With<CoinBag>>,
     window: Query<&Window>,
 ) {
     if !ev_restart.is_empty() {
@@ -475,6 +535,16 @@ pub fn restart(
         let (mut snake_head, mut snake_head_velocity) = snake_head;
         snake_head.translation = snake_head_location;
         *snake_head_velocity = Velocity(Vec3::ZERO);
+
+        if !coinbag_entity.is_empty() {
+            let coinbag_entity = coinbag_entity.single();
+            commands.entity(coinbag_entity).despawn();
+        }
+
+        if !food_entity.is_empty() {
+            let food_entity = food_entity.single();
+            commands.entity(food_entity).despawn();
+        }
     }
 }
 
@@ -635,54 +705,66 @@ pub fn move_tail(
     }
 }
 
-pub fn consume_food(
+pub fn consume_items(
     mut commands: Commands,
     food: Query<(&Transform, Entity), With<Food>>,
-    head: Query<(&Transform, Entity), With<Snake>>,
+    coins: Query<(&Transform, Entity, &CoinBag), With<CoinBag>>,
+    head: Query<&Transform, With<Snake>>,
     tail_nodes: Query<(&Transform, Entity), With<SnakeTailNode>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut game: ResMut<Game>,
 ) {
-    let food = food.single();
     let head = head.single();
-    let (food, food_entity) = food;
-    let (head, _) = head;
-    if food.translation.distance(head.translation) < (SNAKE_HEAD_RADIUS + FOOD_RADIUS) {
-        // food consumed
-        commands.entity(food_entity).despawn();
-        game.score += 1;
-        let tail_nodes_vec: Vec<_> = tail_nodes.iter().collect();
-        let tail_nodes_count = tail_nodes_vec.len();
-        let last_tail_node = tail_nodes_vec.last();
-        let offset_origin = match last_tail_node {
-            Some((last_tail_node, _)) => last_tail_node.translation,
-            None => head.translation,
-        };
-        let angle_to_offset = if tail_nodes_count >= 2 {
-            let penultimate_tail_node = tail_nodes_vec.get(tail_nodes_count - 2).unwrap();
-            offset_origin.angle_between(penultimate_tail_node.0.translation)
-        } else {
-            random()
-        };
-        let offset_vector = Vec3::new(
-            TAIL_NODE_GAP * angle_to_offset.cos(),
-            TAIL_NODE_GAP * angle_to_offset.sin(),
-            0.0,
-        );
-        let ignore_collision = tail_nodes_count < 1;
-        commands.spawn((
-            SnakeTailNode(ignore_collision),
-            MaterialMesh2dBundle {
-                mesh: meshes
-                    .add(shape::Circle::new(SNAKE_HEAD_RADIUS).into())
-                    .into(),
-                material: materials.add(ColorMaterial::from(Color::GREEN)),
-                transform: Transform::from_translation(offset_origin + offset_vector),
-                ..default()
-            },
-            TailNodeCount(tail_nodes_count),
-        ));
+    // consume_food
+    if !food.is_empty() {
+        let food = food.single();
+        let (food, food_entity) = food;
+        if food.translation.distance(head.translation) < (SNAKE_HEAD_RADIUS + FOOD_RADIUS) {
+            // food consumed
+            commands.entity(food_entity).despawn();
+            game.score += 1;
+            let tail_nodes_vec: Vec<_> = tail_nodes.iter().collect();
+            let tail_nodes_count = tail_nodes_vec.len();
+            let last_tail_node = tail_nodes_vec.last();
+            let offset_origin = match last_tail_node {
+                Some((last_tail_node, _)) => last_tail_node.translation,
+                None => head.translation,
+            };
+            let angle_to_offset = if tail_nodes_count >= 2 {
+                let penultimate_tail_node = tail_nodes_vec.get(tail_nodes_count - 2).unwrap();
+                offset_origin.angle_between(penultimate_tail_node.0.translation)
+            } else {
+                random()
+            };
+            let offset_vector = Vec3::new(
+                TAIL_NODE_GAP * angle_to_offset.cos(),
+                TAIL_NODE_GAP * angle_to_offset.sin(),
+                0.0,
+            );
+            let ignore_collision = tail_nodes_count < 1;
+            commands.spawn((
+                SnakeTailNode(ignore_collision),
+                MaterialMesh2dBundle {
+                    mesh: meshes
+                        .add(shape::Circle::new(SNAKE_HEAD_RADIUS).into())
+                        .into(),
+                    material: materials.add(ColorMaterial::from(Color::GREEN)),
+                    transform: Transform::from_translation(offset_origin + offset_vector),
+                    ..default()
+                },
+                TailNodeCount(tail_nodes_count),
+            ));
+        }
+    }
+    // consume_coins
+    if !coins.is_empty() {
+        let (coins_transform, coins_entity, coins) = coins.single();
+        if coins_transform.translation.distance(head.translation) < (SNAKE_HEAD_RADIUS + FOOD_RADIUS) {
+            commands.entity(coins_entity).despawn();
+            game.coins += coins.value;
+            // game.coins += (rand::thread_rng().gen_range(8.0..12.0f32) * 100.0).round() / 100.0;
+        }
     }
 }
 
@@ -744,6 +826,17 @@ pub fn spawn_debug_output(mut commands: Commands, asset_server: Res<AssetServer>
     commands.spawn((text_bundle, DebugOutput));
 }
 
+const COIN_LEAK_PER_FRAME: f32 = 0.01;
+
+pub fn coinbag_leak(mut commands: Commands, mut coins: Query<(&mut CoinBag, Entity)>) {
+    for (mut coins, coins_entity) in &mut coins {
+        coins.value -= COIN_LEAK_PER_FRAME;
+        if coins.value <= 0. {
+            commands.entity(coins_entity).despawn();
+        }
+    }
+}
+
 const DRAG_COEFFICIENT: f32 = 0.98;
 const MAX_VELOCITY: f32 = 10.0;
 
@@ -756,6 +849,50 @@ pub fn drag(mut velocities: Query<&mut Velocity>) {
         }
         velocity.clamp_length(0.0, MAX_VELOCITY);
     }
+}
+
+#[derive(Component)]
+pub struct CoinsOutput;
+
+#[derive(Component)]
+pub struct CoinbagValueOutput;
+
+pub fn spawn_coins_output(mut commands: Commands, game: Res<Game>, asset_server: Res<AssetServer>) {
+    commands
+        .spawn(NodeBundle {
+            style: Style {
+                margin: UiRect::all(Val::Px(15.)),
+                position_type: PositionType::Absolute,
+                flex_direction: FlexDirection::Column,
+                right: Val::Px(15.),
+                ..default()
+            },
+            ..default()
+        })
+        .with_children(|parent| {
+            parent.spawn((
+                TextBundle::from_section(
+                    format!("Coins: {0}", game.coins),
+                    TextStyle {
+                        font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                        font_size: 32.0,
+                        ..default()
+                    },
+                ),
+                CoinsOutput,
+            ));
+            parent.spawn((
+                TextBundle::from_section(
+                    format!("Bag Value"),
+                    TextStyle {
+                        font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                        font_size: 32.0,
+                        ..default()
+                    },
+                ), 
+                CoinbagValueOutput,
+            ));
+        });
 }
 
 #[derive(Component)]
@@ -785,6 +922,23 @@ pub fn spawn_score_output(mut commands: Commands, game: Res<Game>, asset_server:
         });
 }
 
+pub fn update_coins_output(
+    mut coins_text: Query<&mut Text, With<CoinsOutput>>, 
+    mut bagvalue_text: Query<&mut Text, (With<CoinbagValueOutput>, Without<CoinsOutput>)>,
+    bag: Query<&CoinBag>,
+    game: Res<Game>,
+) {
+    let mut coins_text = coins_text.single_mut();
+    coins_text.sections[0].value = format!("Coins: {0:>12.2}", game.coins);
+    let mut bagvalue_text = bagvalue_text.single_mut();
+    bagvalue_text.sections[0].value = if bag.is_empty() {
+        format!("")
+    } else {
+        let bag = bag.single();
+        format!("Bag Value: {0:>8.2}", bag.value)
+    }
+}
+
 pub fn update_score_output(
     mut score_text: Query<&mut Text, With<ScoreOutput>>,
     game: Res<Game>,
@@ -799,10 +953,24 @@ pub fn update_score_output(
 }
 
 #[derive(Component)]
-pub struct Snake;
+pub struct Snake {
+    health: f32,
+}
 
 #[derive(Component)]
 pub struct SnakeTailNode(bool);
+
+#[derive(Asset, AsBindGroup, TypePath, Clone)]
+pub struct HealthbarMaterial {
+    #[uniform(0)]
+    health: f32,
+}
+
+impl Material for HealthbarMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/healthbar.wgsl".into()
+    }
+}
 
 const FOOD_RADIUS: f32 = 15.0;
 const SNAKE_HEAD_RADIUS: f32 = 30.0;
@@ -810,20 +978,36 @@ const SNAKE_HEAD_RADIUS: f32 = 30.0;
 pub fn spawn_snake(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut color_materials: ResMut<Assets<ColorMaterial>>,
+    mut healthbar_materials: ResMut<Assets<HealthbarMaterial>>,
 ) {
     commands.spawn((
-        Snake,
+        Snake {
+            health: 100.
+        },
         MaterialMesh2dBundle {
             mesh: meshes
                 .add(shape::Circle::new(SNAKE_HEAD_RADIUS).into())
                 .into(),
-            material: materials.add(ColorMaterial::from(Color::GREEN)),
+            material: color_materials.add(ColorMaterial::from(Color::GREEN)),
             transform: Transform::from_translation(Vec3::new(-150., 0., 0.)),
             ..default()
         },
         Velocity(Vec3::ZERO),
-    ));
+    )).with_children(|parent| {
+        parent.spawn(MaterialMeshBundle {
+            mesh: meshes.add(shape::Quad::new(Vec2::new(SNAKE_HEAD_RADIUS * 2.0, 10.)).into()).into(),
+            // material: color_materials.add(ColorMaterial::from(Color::BLACK)),
+            material: healthbar_materials.add(HealthbarMaterial {
+                health: 1.
+            }),
+            transform: Transform {
+                translation: Vec3::new(0., SNAKE_HEAD_RADIUS + 20., 1.),
+                ..default()
+            },
+            ..default()
+        });
+    });
 }
 
 #[derive(Component)]
@@ -876,6 +1060,7 @@ fn spawn_food(
 pub struct Game {
     game_over: bool,
     score: usize,
+    coins: f32,
 }
 
 impl Game {
@@ -883,11 +1068,11 @@ impl Game {
         Self {
             game_over: false,
             score: 0,
+            coins: 0.,
         }
     }
     pub fn restart(&mut self) {
-        self.game_over = false;
-        self.score = 0;
+        *self = Self::new()
     }
 }
 
