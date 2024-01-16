@@ -15,6 +15,8 @@ use bevy::{
     },
     sprite::{
         MaterialMesh2dBundle,
+        Material2dPlugin,
+        Material2d,
     },
     window::{PresentMode, WindowMode},
 };
@@ -102,7 +104,7 @@ fn main() {
                 }),
                 ..default()
             }),
-            MaterialPlugin::<HealthbarMaterial>::default(),
+            Material2dPlugin::<HealthbarMaterial>::default(),
         ))
         .insert_resource(Game {
             game_over: false,
@@ -138,14 +140,23 @@ fn main() {
             (
                 // can only restart the game if the game is over, atm, this may change in the
                 // future so make sure to remove the run condition if it does.
-                restart.run_if(game_is_over),
-                update_score_output.run_if(not(game_is_paused)),
-                update_coins_output.run_if(not(game_is_paused)),
-                menu_navigation.run_if(game_is_over),
-                update_high_score.run_if(game_is_over),
+                (
+                    restart,
+                    menu_navigation,
+                    update_high_score,
+                    game_over_menu_selected_button_update,
+                    on_restart_clicked,
+                ).run_if(game_is_over),
+                (
+                    update_score_output,
+                    update_coins_output,
+                ).run_if(not(game_is_paused)),
                 collide_with_self.run_if(snake_is_big_enough),
-                game_over_menu_selected_button_update.run_if(game_is_over),
-                player_input.run_if(not(game_is_over).and_then(not(game_is_paused))),
+                (
+                    player_input,
+                    update_health_material,
+                    update_health,
+                ).run_if(not(game_is_over).and_then(not(game_is_paused))),
                 bevy::window::close_on_esc,
                 drag.run_if(not(game_is_paused)),
                 update_debug_output.run_if(debug_output_shown),
@@ -156,12 +167,35 @@ fn main() {
                 consume_items.run_if(any_with_component::<Food>().or_else(any_with_component::<CoinBag>())),
                 move_tail.run_if(any_with_component::<SnakeTailNode>()),
                 on_quit_clicked,
-                on_restart_clicked.run_if(game_is_over),
                 show_game_over,
                 pause_menu_event_handler,
             ),
         )
         .run();
+}
+
+pub const HEALTH_LOSS_PER_SECOND: f32 = 10.;
+
+pub fn update_health(
+    mut snake: Query<&mut Snake>,
+    time: Res<Time>,
+    mut ev_game_over: EventWriter<GameOverEvent>,
+) {
+    let mut snake = snake.single_mut();
+    snake.health -= HEALTH_LOSS_PER_SECOND * time.delta_seconds();
+    if snake.health <= 0. {
+        ev_game_over.send_default();
+    }
+}
+
+pub fn update_health_material(
+    mut materials: ResMut<Assets<HealthbarMaterial>>,
+    snake: Query<&Snake>,
+    ) {
+    let snake = snake.single();
+    for (_, material) in materials.iter_mut() {
+        material.health = snake.health / 100.0;
+    }
 }
 
 pub fn update_high_score(game: Res<Game>, high_score: Res<HighScore>) {
@@ -506,6 +540,7 @@ pub fn restart(
     snake_tail: Query<Entity, With<SnakeTailNode>>,
     mut game_over_visibility: Query<&mut Visibility, With<GameOver>>,
     mut snake_head: Query<(&mut Transform, &mut Velocity), With<Snake>>,
+    mut snake: Query<&mut Snake>,
     food_entity: Query<Entity, With<Food>>,
     coinbag_entity: Query<Entity, With<CoinBag>>,
     window: Query<&Window>,
@@ -535,6 +570,9 @@ pub fn restart(
         let (mut snake_head, mut snake_head_velocity) = snake_head;
         snake_head.translation = snake_head_location;
         *snake_head_velocity = Velocity(Vec3::ZERO);
+
+        let mut snake = snake.single_mut();
+        snake.health = 100.;
 
         if !coinbag_entity.is_empty() {
             let coinbag_entity = coinbag_entity.single();
@@ -705,6 +743,8 @@ pub fn move_tail(
     }
 }
 
+pub const FOOD_HEALTH: f32 = 30.;
+
 pub fn consume_items(
     mut commands: Commands,
     food: Query<(&Transform, Entity), With<Food>>,
@@ -714,8 +754,10 @@ pub fn consume_items(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut game: ResMut<Game>,
+    mut snake: Query<&mut Snake>,
 ) {
     let head = head.single();
+    let mut snake = snake.single_mut();
     // consume_food
     if !food.is_empty() {
         let food = food.single();
@@ -724,6 +766,9 @@ pub fn consume_items(
             // food consumed
             commands.entity(food_entity).despawn();
             game.score += 1;
+            snake.health += FOOD_HEALTH;
+            snake.health = snake.health.clamp(0., 100.);
+
             let tail_nodes_vec: Vec<_> = tail_nodes.iter().collect();
             let tail_nodes_count = tail_nodes_vec.len();
             let last_tail_node = tail_nodes_vec.last();
@@ -966,7 +1011,7 @@ pub struct HealthbarMaterial {
     health: f32,
 }
 
-impl Material for HealthbarMaterial {
+impl Material2d for HealthbarMaterial {
     fn fragment_shader() -> ShaderRef {
         "shaders/healthbar.wgsl".into()
     }
@@ -995,7 +1040,7 @@ pub fn spawn_snake(
         },
         Velocity(Vec3::ZERO),
     )).with_children(|parent| {
-        parent.spawn(MaterialMeshBundle {
+        parent.spawn(MaterialMesh2dBundle {
             mesh: meshes.add(shape::Quad::new(Vec2::new(SNAKE_HEAD_RADIUS * 2.0, 10.)).into()).into(),
             // material: color_materials.add(ColorMaterial::from(Color::BLACK)),
             material: healthbar_materials.add(HealthbarMaterial {

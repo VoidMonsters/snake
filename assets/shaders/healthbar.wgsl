@@ -1,22 +1,19 @@
-// Assuming health is a float between 0.0 and 1.0
-// Red to green gradient for low to high health
+#import bevy_sprite::mesh2d_vertex_output::VertexOutput
 
-[[block]]
-struct Uniforms {
-    health: f32;
+struct HealthbarMaterial {
+    health: f32,
 };
 
-[[group(0), binding(0)]]
-var<uniform> u: Uniforms;
+@group(1) @binding(0) var<uniform> u: HealthbarMaterial;
 
-[[stage(fragment)]]
-fn main() -> [[location(0)]] vec4<f32> {
-    // Define your gradient colors
-    let lowHealthColor = vec4<f32>(1.0, 0.0, 0.0, 1.0); // Red
-    let highHealthColor = vec4<f32>(0.0, 1.0, 0.0, 1.0); // Green
+@fragment
+fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
+    let lowHealthColor = vec4<f32>(1.0, 0.0, 0.0, 1.0); 
+    let highHealthColor = vec4<f32>(0.0, 1.0, 0.0, 1.0);
 
-    // Interpolate between colors based on health
-    let barColor = mix(lowHealthColor, highHealthColor, u.health);
+    if mesh.uv.x > u.health {
+        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
 
-    return barColor;
+    return mix(lowHealthColor, highHealthColor, u.health);
 }
