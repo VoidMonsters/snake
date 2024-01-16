@@ -149,15 +149,12 @@ fn main() {
                 ).run_if(game_is_over),
                 (
                     update_score_output,
-                    update_coins_output,
-                ).run_if(not(game_is_paused)),
-                collide_with_self.run_if(snake_is_big_enough),
-                (
                     player_input,
+                    update_coins_output,
                     update_health_material,
                     update_health,
                 ).run_if(not(game_is_over).and_then(not(game_is_paused))),
-                bevy::window::close_on_esc,
+                collide_with_self.run_if(snake_is_big_enough),
                 drag.run_if(not(game_is_paused)),
                 update_debug_output.run_if(debug_output_shown),
                 spawn_coins
@@ -290,6 +287,18 @@ pub fn spawn_pause_menu(mut commands: Commands, asset_server: Res<AssetServer>) 
                         .spawn(NodeBundle { ..default() })
                         .with_children(|parent| {
                             parent
+                                .spawn((get_button(), UpgradesButton, PauseMenu))
+                                .with_children(|parent| {
+                                    parent.spawn(TextBundle::from_section(
+                                        "Upgrades",
+                                        TextStyle {
+                                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                            font_size: BUTTON_FONT_SIZE,
+                                            color: Color::WHITE,
+                                        },
+                                    ));
+                                });
+                            parent
                                 .spawn((get_button(), QuitButton, PauseMenu))
                                 .with_children(|parent| {
                                     parent.spawn(TextBundle::from_section(
@@ -321,21 +330,34 @@ pub fn pause_menu_event_handler(
     mut keys: ResMut<Input<KeyCode>>,
     gamepads: Res<Gamepads>,
     mut buttons: ResMut<Input<GamepadButton>>,
-    mut menu_visibility: Query<&mut Visibility, (With<PauseMenu>, Without<QuitButton>)>,
+    mut menu_visibility: Query<&mut Visibility, (With<PauseMenu>, Without<QuitButton>, Without<UpgradesButton>)>,
     mut ev_paused: EventReader<PauseGameEvent>,
     mut selected_button: ResMut<PauseMenuSelectedButton>,
     mut ev_quit: EventWriter<AppExit>,
-    mut quit_button_style: Query<&mut Style, (With<PauseMenu>, With<QuitButton>)>,
+    mut quit_button_style: Query<&mut Style, (With<PauseMenu>, With<QuitButton>, Without<UpgradesButton>)>,
+    mut upgrades_button_style: Query<&mut Style, (With<PauseMenu>, With<UpgradesButton>, Without<QuitButton>)>,
+
 ) {
     let mut quit_button_style = quit_button_style.single_mut();
+    let mut upgrades_button_style = upgrades_button_style.single_mut();
     match *selected_button {
+        PauseMenuSelectedButton::Upgrades => {
+            upgrades_button_style.border.bottom = Val::Px(2.);
+            upgrades_button_style.margin.bottom = Val::Px(-2.);
+            quit_button_style.border.bottom = Val::ZERO;
+            quit_button_style.margin.bottom = Val::ZERO;
+        }
         PauseMenuSelectedButton::Quit => {
             quit_button_style.border.bottom = Val::Px(2.);
             quit_button_style.margin.bottom = Val::Px(-2.);
+            upgrades_button_style.border.bottom = Val::ZERO;
+            upgrades_button_style.margin.bottom = Val::ZERO;
         }
         PauseMenuSelectedButton::None => {
             quit_button_style.border.bottom = Val::ZERO;
             quit_button_style.margin.bottom = Val::ZERO;
+            upgrades_button_style.border.bottom = Val::ZERO;
+            upgrades_button_style.margin.bottom = Val::ZERO;
         }
     }
     let mut menu_visibility = menu_visibility.single_mut();
@@ -346,9 +368,34 @@ pub fn pause_menu_event_handler(
     }
     let PauseState(paused) = *pause_state;
     if paused {
-        if keys.clear_just_pressed(KeyCode::P) {
+        if keys.clear_just_pressed(KeyCode::P) || keys.clear_just_pressed(KeyCode::Escape) {
             *menu_visibility = Visibility::Hidden;
             *pause_state = PauseState(false);
+        }
+        if keys.clear_just_pressed(KeyCode::Left) {
+            *selected_button = match *selected_button {
+                PauseMenuSelectedButton::Upgrades => PauseMenuSelectedButton::None,
+                PauseMenuSelectedButton::Quit => PauseMenuSelectedButton::Upgrades,
+                PauseMenuSelectedButton::None => PauseMenuSelectedButton::Quit,
+            };
+        }
+        if keys.clear_just_pressed(KeyCode::Right) {
+            *selected_button = match *selected_button {
+                PauseMenuSelectedButton::Upgrades => PauseMenuSelectedButton::Quit,
+                PauseMenuSelectedButton::Quit => PauseMenuSelectedButton::None,
+                PauseMenuSelectedButton::None => PauseMenuSelectedButton::Upgrades,
+            };
+        }
+        if keys.clear_just_pressed(KeyCode::Return) {
+            match *selected_button {
+                PauseMenuSelectedButton::Upgrades => {
+                    todo!("Upgrades menu not implemented");
+                }
+                PauseMenuSelectedButton::Quit => {
+                    ev_quit.send_default();
+                }
+                PauseMenuSelectedButton::None => {}
+            }
         }
         let gamepad = gamepads.iter().next();
         if let Some(gamepad) = gamepad {
@@ -372,14 +419,26 @@ pub fn pause_menu_event_handler(
                 *menu_visibility = Visibility::Hidden;
                 *pause_state = PauseState(false);
             }
-            if buttons.clear_just_pressed(left_dpad) || buttons.clear_just_pressed(right_dpad) {
+            if buttons.clear_just_pressed(left_dpad)  {
                 *selected_button = match *selected_button {
-                    PauseMenuSelectedButton::Quit => PauseMenuSelectedButton::None,
+                    PauseMenuSelectedButton::Upgrades => PauseMenuSelectedButton::None,
+                    PauseMenuSelectedButton::Quit => PauseMenuSelectedButton::Upgrades,
                     PauseMenuSelectedButton::None => PauseMenuSelectedButton::Quit,
+                };
+            }
+
+            if buttons.clear_just_pressed(right_dpad) {
+                *selected_button = match *selected_button {
+                    PauseMenuSelectedButton::Upgrades => PauseMenuSelectedButton::Quit,
+                    PauseMenuSelectedButton::Quit => PauseMenuSelectedButton::None,
+                    PauseMenuSelectedButton::None => PauseMenuSelectedButton::Upgrades,
                 };
             }
             if buttons.clear_just_pressed(a_button) {
                 match *selected_button {
+                    PauseMenuSelectedButton::Upgrades => {
+                        todo!("Upgrades menu not implemented");
+                    }
                     PauseMenuSelectedButton::Quit => {
                         ev_quit.send_default();
                     }
@@ -393,23 +452,43 @@ pub fn pause_menu_event_handler(
 pub fn menu_navigation(
     gamepads: Res<Gamepads>,
     selected_button: Res<GameOverMenuSelectedButton>,
+    mut keys: ResMut<Input<KeyCode>>,
     mut buttons: ResMut<Input<GamepadButton>>,
     mut ev_button_highlighted: EventWriter<ButtonHighlightedEvent>,
     mut ev_restart: EventWriter<RestartEvent>,
     mut ev_quit: EventWriter<AppExit>,
 ) {
     let gamepad = gamepads.iter().next();
+    let next_button = match *selected_button {
+        GameOverMenuSelectedButton::None => GameOverMenuSelectedButton::Quit,
+        GameOverMenuSelectedButton::Quit => GameOverMenuSelectedButton::Restart,
+        GameOverMenuSelectedButton::Restart => GameOverMenuSelectedButton::Quit,
+    };
+    let prev_button = match *selected_button {
+        GameOverMenuSelectedButton::None => GameOverMenuSelectedButton::Restart,
+        GameOverMenuSelectedButton::Quit => GameOverMenuSelectedButton::Restart,
+        GameOverMenuSelectedButton::Restart => GameOverMenuSelectedButton::Quit,
+    };
+    if keys.clear_just_pressed(KeyCode::Right) {
+        ev_button_highlighted.send(ButtonHighlightedEvent(next_button));
+    }
+    if keys.clear_just_pressed(KeyCode::Left) {
+        ev_button_highlighted.send(ButtonHighlightedEvent(prev_button));
+    }
+    if keys.clear_just_pressed(KeyCode::Return) {
+        match *selected_button {
+            GameOverMenuSelectedButton::Quit => {
+                ev_quit.send_default();
+            }
+            GameOverMenuSelectedButton::Restart => {
+                ev_restart.send_default();
+            }
+            GameOverMenuSelectedButton::None => {
+                // no-op
+            }
+        }
+    }
     if let Some(gamepad) = gamepad {
-        let next_button = match *selected_button {
-            GameOverMenuSelectedButton::None => GameOverMenuSelectedButton::Quit,
-            GameOverMenuSelectedButton::Quit => GameOverMenuSelectedButton::Restart,
-            GameOverMenuSelectedButton::Restart => GameOverMenuSelectedButton::Quit,
-        };
-        let prev_button = match *selected_button {
-            GameOverMenuSelectedButton::None => GameOverMenuSelectedButton::Restart,
-            GameOverMenuSelectedButton::Quit => GameOverMenuSelectedButton::Restart,
-            GameOverMenuSelectedButton::Restart => GameOverMenuSelectedButton::Quit,
-        };
         let left_button = GamepadButton {
             gamepad,
             button_type: GamepadButtonType::DPadLeft,
@@ -533,6 +612,9 @@ pub struct RestartButton;
 #[derive(Component)]
 pub struct QuitButton;
 
+#[derive(Component)]
+pub struct UpgradesButton;
+
 pub fn restart(
     mut ev_restart: EventReader<RestartEvent>,
     mut commands: Commands,
@@ -628,7 +710,7 @@ pub fn on_quit_clicked(
     }
 }
 
-#[derive(Resource, Clone)]
+#[derive(Resource, Clone, Copy)]
 pub enum GameOverMenuSelectedButton {
     Restart,
     Quit,
@@ -637,6 +719,7 @@ pub enum GameOverMenuSelectedButton {
 
 #[derive(Resource, Clone)]
 pub enum PauseMenuSelectedButton {
+    Upgrades,
     Quit,
     None,
 }
@@ -863,7 +946,7 @@ pub fn spawn_debug_output(mut commands: Commands, asset_server: Res<AssetServer>
     ])
     .with_style(Style {
         flex_direction: FlexDirection::Column,
-        top: Val::Px(5.0),
+        top: Val::Px(75.0),
         left: Val::Px(15.0),
         ..default()
     });
@@ -1040,6 +1123,7 @@ pub fn spawn_snake(
         },
         Velocity(Vec3::ZERO),
     )).with_children(|parent| {
+        // snake health bar
         parent.spawn(MaterialMesh2dBundle {
             mesh: meshes.add(shape::Quad::new(Vec2::new(SNAKE_HEAD_RADIUS * 2.0, 10.)).into()).into(),
             // material: color_materials.add(ColorMaterial::from(Color::BLACK)),
@@ -1068,7 +1152,7 @@ fn setup(mut commands: Commands, mut window: Query<&mut Window>) {
     // reason we defer it until now is so that it will appear on the _current_ monitor
     // for players with a multi-monitor setup.  Without the delay, it appears on the primary
     // monitor instead which is maybe not always what the player wanted/expected.
-    let _ = window.mode.set(Box::new(WindowMode::Fullscreen));
+    let _ = window.mode.set(Box::new(WindowMode::BorderlessFullscreen));
 }
 
 fn spawn_food(
@@ -1173,21 +1257,24 @@ fn player_input(
         }
     }
     if keys.pressed(KeyCode::F) {
-        let _ = window.mode.set(Box::new(WindowMode::Fullscreen));
+        let _ = window.mode.set(Box::new(WindowMode::BorderlessFullscreen));
     }
-    if keys.pressed(KeyCode::W) {
-        head_velocity.y += accel_factor;
+    let mut head_velocity_delta = Vec3::ZERO;
+    if keys.pressed(KeyCode::W) || keys.pressed(KeyCode::Up) {
+        head_velocity_delta.y += 1.;
     }
-    if keys.pressed(KeyCode::S) {
-        head_velocity.y -= accel_factor;
+    if keys.pressed(KeyCode::S) || keys.pressed(KeyCode::Down) {
+        head_velocity_delta.y -= 1.;
     }
-    if keys.pressed(KeyCode::D) {
-        head_velocity.x += accel_factor;
+    if keys.pressed(KeyCode::D) || keys.pressed(KeyCode::Right) {
+        head_velocity_delta.x += 1.;
     }
-    if keys.pressed(KeyCode::A) {
-        head_velocity.x -= accel_factor;
+    if keys.pressed(KeyCode::A) || keys.pressed(KeyCode::Left) {
+        head_velocity_delta.x -= 1.;
     }
-    if keys.clear_just_pressed(KeyCode::P) {
+    *head_velocity = *head_velocity + (head_velocity_delta.normalize_or_zero() * accel_factor);
+
+    if keys.clear_just_pressed(KeyCode::P) || keys.clear_just_pressed(KeyCode::Escape) {
         ev_pause.send_default();
     }
     head_transform.translation += *head_velocity * time.delta_seconds();
