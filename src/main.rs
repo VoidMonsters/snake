@@ -77,8 +77,6 @@ const BUTTON_FONT_SIZE: f32 = 30.;
 fn get_button() -> ButtonBundle {
     ButtonBundle {
         style: Style {
-            // width: Val::Px(150.0),
-            // height: Val::Px(65.0),
             padding: UiRect::all(Val::Px(5.0)),
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
@@ -87,6 +85,21 @@ fn get_button() -> ButtonBundle {
         border_color: BorderColor(Color::WHITE),
         background_color: BackgroundColor(Color::NONE),
         ..default()
+    }
+}
+
+#[derive(Resource)]
+pub struct GameFieldSize {
+    x: f32,
+    y: f32,
+}
+
+impl From<GameFieldSize> for Vec2 {
+    fn from(gamefieldsize: GameFieldSize) -> Vec2 {
+        Vec2 {
+            x: gamefieldsize.x,
+            y: gamefieldsize.y,
+        }
     }
 }
 
@@ -105,11 +118,15 @@ fn main() {
                 ..default()
             }),
             Material2dPlugin::<HealthbarMaterial>::default(),
+            Material2dPlugin::<GameFieldMaterial>::default(),
         ))
         .insert_resource(Game {
             game_over: false,
             score: 0,
             coins: 0.,
+        })
+        .insert_resource(CameraSettings {
+            follow_snake: false,
         })
         .insert_resource(GameOverMenuSelectedButton::Restart)
         .insert_resource(PauseMenuSelectedButton::Quit)
@@ -117,6 +134,10 @@ fn main() {
         .insert_resource(HighScore)
         .insert_resource(DebugSettings {
             output_shown: false,
+        })
+        .insert_resource(GameFieldSize {
+            x: 1920.,
+            y: 1080.,
         })
         .add_event::<GameOverEvent>()
         .add_event::<ButtonHighlightedEvent>()
@@ -126,6 +147,7 @@ fn main() {
             Startup,
             (
                 setup,
+                spawn_game_field_quad.after(setup),
                 spawn_score_output,
                 spawn_coins_output,
                 spawn_snake,
@@ -171,7 +193,7 @@ fn main() {
         .run();
 }
 
-pub const HEALTH_LOSS_PER_SECOND: f32 = 10.;
+pub const HEALTH_LOSS_PER_SECOND: f32 = 1.;
 
 pub fn update_health(
     mut snake: Query<&mut Snake>,
@@ -210,11 +232,14 @@ pub struct CoinBag {
     value: f32
 }
 
+// the minimum distance from the edge of the screen that coins spawn at
+const COIN_BOUNDARY: f32 = 128.;
+
 pub fn spawn_coins(mut commands: Commands, asset_server: Res<AssetServer>, window: Query<&Window>) {
     let mut coins_location = Vec3::random();
     let window = window.single();
-    let boundary_x = (window.resolution.width() / 2.) - 128.; // todo: don't hard-code this
-    let boundary_y = (window.resolution.height() / 2.) - 128.;
+    let boundary_x = (window.resolution.width() / 2.) - COIN_BOUNDARY;
+    let boundary_y = (window.resolution.height() / 2.) - COIN_BOUNDARY;
 
     coins_location.x -= 0.5;
     coins_location.y -= 0.5;
@@ -284,7 +309,14 @@ pub fn spawn_pause_menu(mut commands: Commands, asset_server: Res<AssetServer>) 
                         },
                     ));
                     parent
-                        .spawn(NodeBundle { ..default() })
+                        .spawn(NodeBundle { 
+                            style: Style {
+                                flex_direction: FlexDirection::Column,
+                                align_items: AlignItems::Center,
+                                ..default()
+                            },
+                            ..default() 
+                        })
                         .with_children(|parent| {
                             parent
                                 .spawn((get_button(), UpgradesButton, PauseMenu))
@@ -336,7 +368,6 @@ pub fn pause_menu_event_handler(
     mut ev_quit: EventWriter<AppExit>,
     mut quit_button_style: Query<&mut Style, (With<PauseMenu>, With<QuitButton>, Without<UpgradesButton>)>,
     mut upgrades_button_style: Query<&mut Style, (With<PauseMenu>, With<UpgradesButton>, Without<QuitButton>)>,
-
 ) {
     let mut quit_button_style = quit_button_style.single_mut();
     let mut upgrades_button_style = upgrades_button_style.single_mut();
@@ -372,14 +403,14 @@ pub fn pause_menu_event_handler(
             *menu_visibility = Visibility::Hidden;
             *pause_state = PauseState(false);
         }
-        if keys.clear_just_pressed(KeyCode::Left) {
+        if keys.clear_just_pressed(KeyCode::Up) {
             *selected_button = match *selected_button {
                 PauseMenuSelectedButton::Upgrades => PauseMenuSelectedButton::None,
                 PauseMenuSelectedButton::Quit => PauseMenuSelectedButton::Upgrades,
                 PauseMenuSelectedButton::None => PauseMenuSelectedButton::Quit,
             };
         }
-        if keys.clear_just_pressed(KeyCode::Right) {
+        if keys.clear_just_pressed(KeyCode::Down) {
             *selected_button = match *selected_button {
                 PauseMenuSelectedButton::Upgrades => PauseMenuSelectedButton::Quit,
                 PauseMenuSelectedButton::Quit => PauseMenuSelectedButton::None,
@@ -405,11 +436,11 @@ pub fn pause_menu_event_handler(
             };
             let left_dpad = GamepadButton {
                 gamepad,
-                button_type: GamepadButtonType::DPadLeft,
+                button_type: GamepadButtonType::DPadUp,
             };
             let right_dpad = GamepadButton {
                 gamepad,
-                button_type: GamepadButtonType::DPadRight,
+                button_type: GamepadButtonType::DPadDown,
             };
             let a_button = GamepadButton {
                 gamepad,
@@ -1023,6 +1054,43 @@ pub fn spawn_coins_output(mut commands: Commands, game: Res<Game>, asset_server:
         });
 }
 
+#[derive(Asset, AsBindGroup, TypePath, Clone, Default)]
+pub struct GameFieldMaterial {
+    #[uniform(0)]
+    width: f32,
+    #[uniform(1)]
+    height: f32,
+}
+
+impl Material2d for GameFieldMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/gamefield.wgsl".into()
+    }
+}
+
+pub fn spawn_game_field_quad(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<GameFieldMaterial>>,
+    gamefield_size: Res<GameFieldSize>,
+    ) {
+
+    let gamefield_size = Vec2 {
+        x: gamefield_size.x,
+        y: gamefield_size.y,
+    };
+
+    commands.spawn(MaterialMesh2dBundle {
+        mesh: meshes.add(shape::Quad::new(gamefield_size).into()).into(),
+        material: materials.add(GameFieldMaterial {
+            width: gamefield_size.x,
+            height: gamefield_size.y,
+        }),
+        transform: Transform::from_translation(Vec3::new(0., 0., -1.)),
+        ..default()
+    });
+}
+
 #[derive(Component)]
 pub struct ScoreOutput;
 
@@ -1156,15 +1224,14 @@ fn setup(mut commands: Commands, mut window: Query<&mut Window>) {
 }
 
 fn spawn_food(
-    window: Query<&Window>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    gamefield_size: Res<GameFieldSize>,
 ) {
     let mut food_location = Vec3::random();
-    let window = window.single();
-    let boundary_x = (window.resolution.width() / 2.) - FOOD_RADIUS;
-    let boundary_y = (window.resolution.height() / 2.) - FOOD_RADIUS;
+    let boundary_x = (gamefield_size.x / 2.) - FOOD_RADIUS;
+    let boundary_y = (gamefield_size.y / 2.) - FOOD_RADIUS;
 
     food_location.x -= 0.5;
     food_location.y -= 0.5;
@@ -1205,20 +1272,29 @@ impl Game {
     }
 }
 
+#[derive(Resource)]
+pub struct CameraSettings {
+    follow_snake: bool,
+}
+
 fn player_input(
     time: Res<Time>,
     mut snake: Query<(&mut Transform, &mut Velocity), With<Snake>>,
     mut keys: ResMut<Input<KeyCode>>,
-    mut window: Query<&mut Window>,
+    // mut window: Query<&mut Window>,
     gamepads: Res<Gamepads>,
     axes: Res<Axis<GamepadAxis>>,
+    button_axes: Res<Axis<GamepadButton>>,
     mut buttons: ResMut<Input<GamepadButton>>,
     mut ev_gameover: EventWriter<GameOverEvent>,
     mut ev_pause: EventWriter<PauseGameEvent>,
     mut debug_settings: ResMut<DebugSettings>,
     mut debug_output_visibility: Query<&mut Visibility, With<DebugOutput>>,
+    mut camera_projection: Query<(&mut OrthographicProjection, &mut Transform), (With<Camera2d>, Without<Snake>)>,
+    gamefield_size: Res<GameFieldSize>,
+    mut camera_settings: ResMut<CameraSettings>,
 ) {
-    let mut window = window.single_mut();
+    // let mut window = window.single_mut();
     let gamepad = gamepads.iter().next();
     let (mut head_transform, mut head_velocity) = snake.single_mut();
     let Velocity(ref mut head_velocity) = *head_velocity;
@@ -1233,6 +1309,22 @@ fn player_input(
             gamepad,
             axis_type: GamepadAxisType::LeftStickY,
         };
+        let axis_rx = GamepadAxis {
+            gamepad,
+            axis_type: GamepadAxisType::RightStickX,
+        };
+        let axis_ry = GamepadAxis {
+            gamepad,
+            axis_type: GamepadAxisType::RightStickY,
+        };
+        let axis_rt = GamepadButton {
+            gamepad,
+            button_type: GamepadButtonType::RightTrigger2,
+        };
+        let axis_lt = GamepadButton {
+            gamepad,
+            button_type: GamepadButtonType::LeftTrigger2,
+        };
         if let (Some(x), Some(y)) = (axes.get(axis_x), axes.get(axis_y)) {
             // combine X and Y into one vector
             let left_stick_pos = Vec2::new(x, y);
@@ -1240,10 +1332,30 @@ fn player_input(
             player_requested_velocity *= time.delta_seconds() * analog_accel_factor;
             *head_velocity = *head_velocity + player_requested_velocity;
         }
+        let (mut camera_projection, mut camera_transform) = camera_projection.single_mut();
+        if let (Some(x), Some(y)) = (axes.get(axis_rx), axes.get(axis_ry)) {
+            let right_stick_pos = Vec3::new(x, y, 0.);
+            camera_transform.translation += right_stick_pos * 100.;
+        }
+        if let (Some(rt), Some(lt)) = (button_axes.get(axis_rt), button_axes.get(axis_lt)) {
+            let total_zoom = (lt - rt).clamp(-0.7, 1.0);
+            camera_projection.scale = 1.0 + total_zoom;
+        }
+        if camera_settings.follow_snake || camera_projection.scale != 1.0 {
+            let camera_origin = head_transform.translation;
+            camera_transform.translation = camera_origin;
+        } 
         let start_button = GamepadButton {
             gamepad,
             button_type: GamepadButtonType::Start,
         };
+        let select_button = GamepadButton {
+            gamepad,
+            button_type: GamepadButtonType::Select,
+        };
+        if buttons.clear_just_pressed(select_button) {
+            camera_settings.follow_snake = !camera_settings.follow_snake;
+        }
         if buttons.clear_just_pressed(start_button) {
             ev_pause.send_default();
         }
@@ -1255,9 +1367,6 @@ fn player_input(
             true => Visibility::Visible,
             false => Visibility::Hidden,
         }
-    }
-    if keys.pressed(KeyCode::F) {
-        let _ = window.mode.set(Box::new(WindowMode::BorderlessFullscreen));
     }
     let mut head_velocity_delta = Vec3::ZERO;
     if keys.pressed(KeyCode::W) || keys.pressed(KeyCode::Up) {
@@ -1278,8 +1387,8 @@ fn player_input(
         ev_pause.send_default();
     }
     head_transform.translation += *head_velocity * time.delta_seconds();
-    let mut boundary_x = window.resolution.width() / 2.;
-    let mut boundary_y = window.resolution.height() / 2.;
+    let mut boundary_x = gamefield_size.x / 2.;
+    let mut boundary_y = gamefield_size.y / 2.;
     boundary_x -= SNAKE_HEAD_RADIUS;
     boundary_y -= SNAKE_HEAD_RADIUS;
     if head_transform.translation.x > boundary_x
