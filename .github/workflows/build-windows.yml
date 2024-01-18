@@ -32,3 +32,7 @@ jobs:
         name: snake
         # A file, directory or wildcard pattern that describes what to upload
         path: dist\*
+    - name: Setup butler
+      uses: jdno/setup-butler@v1
+    - name: Publish to Itch.io
+      run: butler push dist hyperfocusaurus/snake:windows
