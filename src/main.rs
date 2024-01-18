@@ -1326,6 +1326,9 @@ fn player_input(
         };
         if buttons.clear_just_pressed(select_button) {
             camera_settings.follow_snake = !camera_settings.follow_snake;
+            if !camera_settings.follow_snake {
+                camera_transform.translation = Vec3::ZERO;
+            }
         }
         if buttons.clear_just_pressed(start_button) {
             ev_pause.send_default();
