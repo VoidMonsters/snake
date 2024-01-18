@@ -18,10 +18,25 @@ use bevy::{
         Material2dPlugin,
         Material2d,
     },
+    ecs::system::SystemId,
     window::{PresentMode, WindowMode},
 };
 
 use rand::{random, Rng};
+
+mod constants;
+pub use constants::{
+    SNAKE_HEAD_RADIUS,
+    FOOD_RADIUS,
+};
+
+mod systems;
+use systems::{
+    update_health,
+    update_score_output,
+    update_coins_output,
+    spawn_snake,
+};
 
 // visual layers
 const PLAYER_LAYER: f32 = 0.;
@@ -143,6 +158,7 @@ fn main() {
         .add_event::<ButtonHighlightedEvent>()
         .add_event::<RestartEvent>()
         .add_event::<PauseGameEvent>()
+        .add_event::<UpgradeMenuButtonClickedEvent>()
         .add_systems(
             Startup,
             (
@@ -181,7 +197,7 @@ fn main() {
                 update_debug_output.run_if(debug_output_shown),
                 spawn_coins
                     .run_if(not(any_with_component::<CoinBag>()).and_then(random_chance(0.02))),
-                coinbag_leak.run_if(any_with_component::<CoinBag>()),
+                coinbag_leak.run_if(any_with_component::<CoinBag>().and_then(not(game_is_paused))),
                 spawn_food.run_if(any_component_removed::<Food>()),
                 consume_items.run_if(any_with_component::<Food>().or_else(any_with_component::<CoinBag>())),
                 move_tail.run_if(any_with_component::<SnakeTailNode>()),
@@ -193,17 +209,36 @@ fn main() {
         .run();
 }
 
-pub const HEALTH_LOSS_PER_SECOND: f32 = 1.;
+struct Upgrade {
+    price: f32,
+    system: SystemId,
+    icon: String, // icon path, to be loaded by the asset loader
+}
 
-pub fn update_health(
-    mut snake: Query<&mut Snake>,
-    time: Res<Time>,
-    mut ev_game_over: EventWriter<GameOverEvent>,
+#[derive(Event)]
+pub struct UpgradePurchasedEvent {
+    upgrade: Upgrade,
+}
+
+pub fn upgrade_purchased(
+    mut commands: Commands,
+    mut ev_upgrade_purchased: EventReader<UpgradePurchasedEvent>,
 ) {
-    let mut snake = snake.single_mut();
-    snake.health -= HEALTH_LOSS_PER_SECOND * time.delta_seconds();
-    if snake.health <= 0. {
-        ev_game_over.send_default();
+    for ev in ev_upgrade_purchased.read() {
+        commands.run_system(ev.upgrade.system);
+    }
+}
+
+pub fn halve_snake_length(
+    mut commands: Commands,
+    snake_tail_nodes: Query<Entity, With<SnakeTailNode>>,
+) {
+    let tail_nodes_vec: Vec<_> = snake_tail_nodes.iter().collect();
+    let tail_nodes_count = tail_nodes_vec.len();
+    for (i, snake_tail_node) in snake_tail_nodes.iter().enumerate() {
+        if i > (tail_nodes_count / 2) {
+            commands.entity(snake_tail_node).despawn();
+        }
     }
 }
 
@@ -357,6 +392,9 @@ pub fn game_is_paused(paused: Res<PauseState>) -> bool {
 #[derive(Event, Default)]
 pub struct PauseGameEvent;
 
+#[derive(Event, Default)]
+pub struct UpgradeMenuButtonClickedEvent;
+
 pub fn pause_menu_event_handler(
     mut pause_state: ResMut<PauseState>,
     mut keys: ResMut<Input<KeyCode>>,
@@ -366,6 +404,7 @@ pub fn pause_menu_event_handler(
     mut ev_paused: EventReader<PauseGameEvent>,
     mut selected_button: ResMut<PauseMenuSelectedButton>,
     mut ev_quit: EventWriter<AppExit>,
+    mut ev_upgrades_menu: EventWriter<UpgradeMenuButtonClickedEvent>,
     mut quit_button_style: Query<&mut Style, (With<PauseMenu>, With<QuitButton>, Without<UpgradesButton>)>,
     mut upgrades_button_style: Query<&mut Style, (With<PauseMenu>, With<UpgradesButton>, Without<QuitButton>)>,
 ) {
@@ -420,7 +459,7 @@ pub fn pause_menu_event_handler(
         if keys.clear_just_pressed(KeyCode::Return) {
             match *selected_button {
                 PauseMenuSelectedButton::Upgrades => {
-                    todo!("Upgrades menu not implemented");
+                    ev_upgrades_menu.send_default();
                 }
                 PauseMenuSelectedButton::Quit => {
                     ev_quit.send_default();
@@ -1118,35 +1157,6 @@ pub fn spawn_score_output(mut commands: Commands, game: Res<Game>, asset_server:
         });
 }
 
-pub fn update_coins_output(
-    mut coins_text: Query<&mut Text, With<CoinsOutput>>, 
-    mut bagvalue_text: Query<&mut Text, (With<CoinbagValueOutput>, Without<CoinsOutput>)>,
-    bag: Query<&CoinBag>,
-    game: Res<Game>,
-) {
-    let mut coins_text = coins_text.single_mut();
-    coins_text.sections[0].value = format!("Coins: {0:>12.2}", game.coins);
-    let mut bagvalue_text = bagvalue_text.single_mut();
-    bagvalue_text.sections[0].value = if bag.is_empty() {
-        format!("")
-    } else {
-        let bag = bag.single();
-        format!("Bag Value: {0:>8.2}", bag.value)
-    }
-}
-
-pub fn update_score_output(
-    mut score_text: Query<&mut Text, With<ScoreOutput>>,
-    game: Res<Game>,
-    high_score: Res<HighScore>,
-) {
-    let mut score_text = score_text.single_mut();
-    score_text.sections[0].value = format!(
-        "Last High Score: {0}\nScore: {1}",
-        high_score.get(),
-        game.score
-    );
-}
 
 #[derive(Component)]
 pub struct Snake {
@@ -1166,45 +1176,6 @@ impl Material2d for HealthbarMaterial {
     fn fragment_shader() -> ShaderRef {
         "shaders/healthbar.wgsl".into()
     }
-}
-
-const FOOD_RADIUS: f32 = 15.0;
-const SNAKE_HEAD_RADIUS: f32 = 30.0;
-
-pub fn spawn_snake(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut color_materials: ResMut<Assets<ColorMaterial>>,
-    mut healthbar_materials: ResMut<Assets<HealthbarMaterial>>,
-) {
-    commands.spawn((
-        Snake {
-            health: 100.
-        },
-        MaterialMesh2dBundle {
-            mesh: meshes
-                .add(shape::Circle::new(SNAKE_HEAD_RADIUS).into())
-                .into(),
-            material: color_materials.add(ColorMaterial::from(Color::GREEN)),
-            transform: Transform::from_translation(Vec3::new(-150., 0., 0.)),
-            ..default()
-        },
-        Velocity(Vec3::ZERO),
-    )).with_children(|parent| {
-        // snake health bar
-        parent.spawn(MaterialMesh2dBundle {
-            mesh: meshes.add(shape::Quad::new(Vec2::new(SNAKE_HEAD_RADIUS * 2.0, 10.)).into()).into(),
-            // material: color_materials.add(ColorMaterial::from(Color::BLACK)),
-            material: healthbar_materials.add(HealthbarMaterial {
-                health: 1.
-            }),
-            transform: Transform {
-                translation: Vec3::new(0., SNAKE_HEAD_RADIUS + 20., 1.),
-                ..default()
-            },
-            ..default()
-        });
-    });
 }
 
 #[derive(Component)]
