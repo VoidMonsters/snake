@@ -36,6 +36,7 @@ use systems::{
     update_score_output,
     update_coins_output,
     spawn_snake,
+    move_food,
 };
 
 // visual layers
@@ -191,6 +192,7 @@ fn main() {
                     update_coins_output,
                     update_health_material,
                     update_health,
+                    move_food.run_if(any_with_component::<Food>()),
                 ).run_if(not(game_is_over).and_then(not(game_is_paused))),
                 collide_with_self.run_if(snake_is_big_enough),
                 drag.run_if(not(game_is_paused)),
@@ -209,6 +211,7 @@ fn main() {
         .run();
 }
 
+#[allow(dead_code)]
 struct Upgrade {
     price: f32,
     system: SystemId,
@@ -975,7 +978,7 @@ pub struct DebugOutput;
 pub fn update_debug_output(
     mut texts: Query<&mut Text, With<DebugOutput>>,
     snakes: Query<(&Transform, &Velocity), With<Snake>>,
-    food_location: Query<&Transform, With<Food>>,
+    food: Query<(&Transform, &Velocity), With<Food>>,
     tail_nodes: Query<(), With<SnakeTailNode>>,
     game: Res<Game>,
 ) {
@@ -983,10 +986,14 @@ pub fn update_debug_output(
     let snake = snakes.single();
     let tail_node_count = tail_nodes.iter().count();
     let (snake_transform, snake_velocity) = snake;
-    if !food_location.is_empty() {
-        let food_location = food_location.single();
+    if !food.is_empty() {
+        let (food_location, food_velocity) = food.single();
         let food_location = food_location.translation;
-        text.sections[1].value = format!("Food location: {food_location}\n");
+        let Velocity(food_velocity) = *food_velocity;
+        let mut s = String::new();
+        let _ = write!(s, "Food location: {food_location}\n");
+        let _ = write!(s, "Food velocity: {food_velocity}\n");
+        text.sections[1].value = s;
     }
     let Velocity(velocity) = *snake_velocity;
     let position = snake_transform.translation;
@@ -1214,6 +1221,7 @@ fn spawn_food(
 
     commands.spawn((
         Food,
+        Velocity(Vec3::ZERO),
         MaterialMesh2dBundle {
             mesh: meshes.add(shape::Circle::new(FOOD_RADIUS).into()).into(),
             material: materials.add(ColorMaterial::from(Color::RED)),

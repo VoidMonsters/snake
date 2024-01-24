@@ -9,3 +9,6 @@ pub use update_coins_output::update_coins_output;
 
 mod spawn_snake;
 pub use spawn_snake::spawn_snake;
+
+mod move_food;
+pub use move_food::move_food;
