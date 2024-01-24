@@ -34,6 +34,8 @@ pub fn move_food(
         food_velocity.y -= 0.5;
         *food_velocity *= FOOD_MOVE_SPEED * 2.;
         food_velocity.z = 0.;
+        let rotate_to_velocity = Quat::from_rotation_arc(Vec3::Z, *food_velocity);
+        food_transform.rotation = rotate_to_velocity;
     }
     let next_loc = food_transform.translation + *food_velocity;
     let mut boundary = Vec2::new(gamefield_size.x, gamefield_size.y);

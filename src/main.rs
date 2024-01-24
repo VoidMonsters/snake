@@ -1203,9 +1203,8 @@ fn setup(mut commands: Commands, mut window: Query<&mut Window>) {
 
 fn spawn_food(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
     gamefield_size: Res<GameFieldSize>,
+    asset_server: Res<AssetServer>,
 ) {
     let mut food_location = Vec3::random();
     let boundary_x = (gamefield_size.x / 2.) - FOOD_RADIUS;
@@ -1222,10 +1221,13 @@ fn spawn_food(
     commands.spawn((
         Food,
         Velocity(Vec3::ZERO),
-        MaterialMesh2dBundle {
-            mesh: meshes.add(shape::Circle::new(FOOD_RADIUS).into()).into(),
-            material: materials.add(ColorMaterial::from(Color::RED)),
-            transform: Transform::from_translation(food_location),
+        SpriteBundle {
+            texture: asset_server.load("sprites/mouse.png"),
+            transform: Transform {
+                translation: food_location,
+                scale: Vec3::new(0.3, 0.3, 1.0),
+                ..default()
+            },
             ..default()
         },
     ));
