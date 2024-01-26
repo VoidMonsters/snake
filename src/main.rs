@@ -37,6 +37,7 @@ use systems::{
     update_coins_output,
     spawn_snake,
     move_food,
+    player_input,
 };
 
 // visual layers
@@ -120,8 +121,8 @@ impl From<GameFieldSize> for Vec2 {
 }
 
 fn main() {
-    App::new()
-        .add_plugins((
+    let mut app = App::new();
+        app.add_plugins((
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
                     present_mode: PresentMode::AutoVsync,
@@ -206,21 +207,75 @@ fn main() {
                 on_quit_clicked,
                 show_game_over,
                 pause_menu_event_handler,
+                upgrade_menu_handler,
             ),
-        )
-        .run();
+        );
+
+    let spawn_upgrades_menu = app.world.register_system(spawn_upgrades_menu);
+
+    let split_snake = app.world.register_system(split_snake);
+
+    app.insert_resource(Systems {
+        spawn_upgrades_menu,
+    });
+    app.insert_resource(Upgrades {
+        upgrades: vec![
+            Upgrade {
+                icon: "split.png".into(),
+                name: "Split Snake".into(),
+                description: "Splits your snake in half, reducing the length of your tail by 50%".into(),
+                system: split_snake,
+                price: 100.0,
+            }
+        ]
+    });
+
+    app.run();
 }
 
-#[allow(dead_code)]
-struct Upgrade {
+pub fn split_snake(
+    
+) {
+    todo!("Snake splitting not yet implemented");
+}
+
+#[derive(Resource)]
+pub struct Upgrades {
+    upgrades: Vec<Upgrade>,
+}
+
+#[derive(Clone)]
+pub struct Upgrade {
     price: f32,
     system: SystemId,
     icon: String, // icon path, to be loaded by the asset loader
+    name: String,
+    #[allow(dead_code)] // we'll get around to showing this eventually
+    description: String,
 }
 
 #[derive(Event)]
 pub struct UpgradePurchasedEvent {
     upgrade: Upgrade,
+}
+
+#[derive(Component)]
+pub struct UpgradesMenu;
+
+pub fn upgrade_menu_handler(
+    mut commands: Commands,
+    mut ev_upgrade_menu_pressed: EventReader<UpgradeMenuButtonClickedEvent>,
+    mut upgrades_menu: Query<&mut Visibility, With<UpgradesMenu>>,
+    systems: Res<Systems>,
+) {
+    for _ in ev_upgrade_menu_pressed.read() {
+        if upgrades_menu.is_empty() {
+            commands.run_system(systems.spawn_upgrades_menu);
+        } else {
+            let mut upgrades_menu = upgrades_menu.single_mut();
+            *upgrades_menu = Visibility::Visible;
+        }
+    }
 }
 
 pub fn upgrade_purchased(
@@ -510,7 +565,7 @@ pub fn pause_menu_event_handler(
             if buttons.clear_just_pressed(a_button) {
                 match *selected_button {
                     PauseMenuSelectedButton::Upgrades => {
-                        todo!("Upgrades menu not implemented");
+                        ev_upgrades_menu.send_default();
                     }
                     PauseMenuSelectedButton::Quit => {
                         ev_quit.send_default();
@@ -763,6 +818,29 @@ pub fn on_restart_clicked(
         }
     }
 }
+
+pub fn on_upgrade_clicked(
+    mut commands: Commands,
+    mut game: ResMut<Game>,
+    mut interaction_query: Query<(&Interaction, &UpgradeIcon), (Changed<Interaction>, With<UpgradeIcon>)>,
+) {
+    for (interaction, upgrade) in &mut interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                if game.coins > upgrade.upgrade.price {
+                    game.coins -= upgrade.upgrade.price;
+                    commands.run_system(upgrade.upgrade.system);
+                } // todo: else show user feedback that the upgrade is too expensive?
+            },
+            Interaction::Hovered => {
+                // todo: make the icon change color?
+                // todo: show a tooltip with the upgrade description
+            },
+            Interaction::None => {},
+        }
+    }
+}
+
 pub fn on_quit_clicked(
     mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<QuitButton>)>,
     mut app_exit_events: EventWriter<AppExit>,
@@ -1191,7 +1269,15 @@ pub struct Velocity(Vec3);
 #[derive(Component)]
 pub struct Food;
 
-fn setup(mut commands: Commands, mut window: Query<&mut Window>) {
+#[derive(Resource)]
+pub struct Systems {
+    spawn_upgrades_menu: SystemId,
+}
+
+fn setup(
+    mut commands: Commands, 
+    mut window: Query<&mut Window>,
+) {
     commands.spawn(Camera2dBundle::default());
     let mut window = window.single_mut();
     // set the window to fullscreen on startup
@@ -1199,6 +1285,70 @@ fn setup(mut commands: Commands, mut window: Query<&mut Window>) {
     // for players with a multi-monitor setup.  Without the delay, it appears on the primary
     // monitor instead which is maybe not always what the player wanted/expected.
     let _ = window.mode.set(Box::new(WindowMode::BorderlessFullscreen));
+}
+
+#[derive(Component)]
+pub struct UpgradeIcon {
+    upgrade: Upgrade,
+}
+
+fn spawn_upgrades_menu(
+    mut commands: Commands,
+    upgrades: Res<Upgrades>,
+    asset_server: Res<AssetServer>,
+) {
+    commands.spawn(NodeBundle {
+        style: Style {
+            width: Val::Percent(100.),
+            height: Val::Percent(100.),
+            padding: UiRect::px(50., 0., 200., 0.),
+            align_items: AlignItems::FlexStart,
+            display: Display::Grid,
+            justify_content: JustifyContent::FlexStart,
+            ..default()
+        },
+        background_color: BackgroundColor(Color::rgba(0., 0., 0., 0.7)),
+        ..default()
+    }).with_children(|parent| {
+        for upgrade in &upgrades.upgrades {
+            parent.spawn(NodeBundle {
+                style: Style {
+                    width: Val::Px(64.),
+                    height: Val::Px(64.),
+                    margin: UiRect::all(Val::Px(32.)),
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                background_color: BackgroundColor(Color::rgba(0., 0., 0., 0.7)),
+                ..default()
+            }).with_children(|parent| {
+                parent.spawn(
+                    (
+                        UpgradeIcon {
+                            upgrade: upgrade.clone(),
+                        },
+                        ImageBundle {
+                            image: UiImage::new(asset_server.load(format!("upgrades/{0}", upgrade.icon))),
+                            style: Style {
+                                ..default()
+                            },
+                            ..default()
+                        }
+                    )
+                );
+                parent.spawn(
+                    TextBundle::from_section(
+                        upgrade.name.clone(),
+                        TextStyle {
+                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                            font_size: 32.,
+                            ..default()
+                        },
+                    )
+                );
+            });
+        }
+    });
 }
 
 fn spawn_food(
@@ -1258,131 +1408,3 @@ pub struct CameraSettings {
     follow_snake: bool,
 }
 
-fn player_input(
-    time: Res<Time>,
-    mut snake: Query<(&mut Transform, &mut Velocity), With<Snake>>,
-    mut keys: ResMut<Input<KeyCode>>,
-    // mut window: Query<&mut Window>,
-    gamepads: Res<Gamepads>,
-    axes: Res<Axis<GamepadAxis>>,
-    button_axes: Res<Axis<GamepadButton>>,
-    mut buttons: ResMut<Input<GamepadButton>>,
-    mut ev_gameover: EventWriter<GameOverEvent>,
-    mut ev_pause: EventWriter<PauseGameEvent>,
-    mut debug_settings: ResMut<DebugSettings>,
-    mut debug_output_visibility: Query<&mut Visibility, With<DebugOutput>>,
-    mut camera_projection: Query<(&mut OrthographicProjection, &mut Transform), (With<Camera2d>, Without<Snake>)>,
-    gamefield_size: Res<GameFieldSize>,
-    mut camera_settings: ResMut<CameraSettings>,
-) {
-    // let mut window = window.single_mut();
-    let gamepad = gamepads.iter().next();
-    let (mut head_transform, mut head_velocity) = snake.single_mut();
-    let Velocity(ref mut head_velocity) = *head_velocity;
-    let accel_factor = 10.;
-    let analog_accel_factor = 500.;
-    if let Some(gamepad) = gamepad {
-        let axis_x = GamepadAxis {
-            gamepad,
-            axis_type: GamepadAxisType::LeftStickX,
-        };
-        let axis_y = GamepadAxis {
-            gamepad,
-            axis_type: GamepadAxisType::LeftStickY,
-        };
-        let axis_rx = GamepadAxis {
-            gamepad,
-            axis_type: GamepadAxisType::RightStickX,
-        };
-        let axis_ry = GamepadAxis {
-            gamepad,
-            axis_type: GamepadAxisType::RightStickY,
-        };
-        let axis_rt = GamepadButton {
-            gamepad,
-            button_type: GamepadButtonType::RightTrigger2,
-        };
-        let axis_lt = GamepadButton {
-            gamepad,
-            button_type: GamepadButtonType::LeftTrigger2,
-        };
-        if let (Some(x), Some(y)) = (axes.get(axis_x), axes.get(axis_y)) {
-            // combine X and Y into one vector
-            let left_stick_pos = Vec2::new(x, y);
-            let mut player_requested_velocity = Vec3::from((left_stick_pos, 0.));
-            player_requested_velocity *= time.delta_seconds() * analog_accel_factor;
-            *head_velocity = *head_velocity + player_requested_velocity;
-        }
-        let (mut camera_projection, mut camera_transform) = camera_projection.single_mut();
-        if let (Some(x), Some(y)) = (axes.get(axis_rx), axes.get(axis_ry)) {
-            let right_stick_pos = Vec3::new(x, y, 0.);
-            camera_transform.translation += right_stick_pos * 100.;
-        }
-        if let (Some(rt), Some(lt)) = (button_axes.get(axis_rt), button_axes.get(axis_lt)) {
-            let total_zoom = (lt - rt).clamp(-0.7, 1.0);
-            camera_projection.scale = 1.0 + total_zoom;
-        }
-        if camera_settings.follow_snake || camera_projection.scale != 1.0 {
-            let camera_origin = head_transform.translation;
-            camera_transform.translation = camera_origin;
-        } 
-        let start_button = GamepadButton {
-            gamepad,
-            button_type: GamepadButtonType::Start,
-        };
-        let select_button = GamepadButton {
-            gamepad,
-            button_type: GamepadButtonType::Select,
-        };
-        if buttons.clear_just_pressed(select_button) {
-            camera_settings.follow_snake = !camera_settings.follow_snake;
-            if !camera_settings.follow_snake {
-                camera_transform.translation = Vec3::ZERO;
-            }
-        }
-        if buttons.clear_just_pressed(start_button) {
-            ev_pause.send_default();
-        }
-    }
-    if keys.clear_just_pressed(KeyCode::F3) {
-        debug_settings.output_shown = !debug_settings.output_shown;
-        let mut debug_output_visibility = debug_output_visibility.single_mut();
-        *debug_output_visibility = match debug_settings.output_shown {
-            true => Visibility::Visible,
-            false => Visibility::Hidden,
-        }
-    }
-    let mut head_velocity_delta = Vec3::ZERO;
-    if keys.pressed(KeyCode::W) || keys.pressed(KeyCode::Up) {
-        head_velocity_delta.y += 1.;
-    }
-    if keys.pressed(KeyCode::S) || keys.pressed(KeyCode::Down) {
-        head_velocity_delta.y -= 1.;
-    }
-    if keys.pressed(KeyCode::D) || keys.pressed(KeyCode::Right) {
-        head_velocity_delta.x += 1.;
-    }
-    if keys.pressed(KeyCode::A) || keys.pressed(KeyCode::Left) {
-        head_velocity_delta.x -= 1.;
-    }
-    *head_velocity = *head_velocity + (head_velocity_delta.normalize_or_zero() * accel_factor);
-
-    if keys.clear_just_pressed(KeyCode::P) || keys.clear_just_pressed(KeyCode::Escape) {
-        ev_pause.send_default();
-    }
-    head_transform.translation += *head_velocity * time.delta_seconds();
-    let mut boundary_x = gamefield_size.x / 2.;
-    let mut boundary_y = gamefield_size.y / 2.;
-    boundary_x -= SNAKE_HEAD_RADIUS;
-    boundary_y -= SNAKE_HEAD_RADIUS;
-    if head_transform.translation.x > boundary_x
-        || head_transform.translation.y > boundary_y
-        || head_transform.translation.x < -boundary_x
-        || head_transform.translation.y < -boundary_y
-    {
-        // game over
-        ev_gameover.send_default();
-    }
-    head_transform.translation.x = head_transform.translation.x.clamp(-boundary_x, boundary_x);
-    head_transform.translation.y = head_transform.translation.y.clamp(-boundary_y, boundary_y);
-}

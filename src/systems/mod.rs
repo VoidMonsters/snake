@@ -12,3 +12,6 @@ pub use spawn_snake::spawn_snake;
 
 mod move_food;
 pub use move_food::move_food;
+
+mod player_input;
+pub use player_input::player_input;
