@@ -1307,6 +1307,9 @@ pub struct GameFieldMaterial {
     width: f32,
     #[uniform(1)]
     height: f32,
+    #[texture(2)]
+    #[sampler(3)]
+    texture: Handle<Image>,
 }
 
 impl Material2d for GameFieldMaterial {
@@ -1320,6 +1323,7 @@ pub fn spawn_game_field_quad(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<GameFieldMaterial>>,
     gamefield_size: Res<GameFieldSize>,
+    asset_server: Res<AssetServer>,
 ) {
     let gamefield_size = Vec2 {
         x: gamefield_size.x,
@@ -1331,6 +1335,7 @@ pub fn spawn_game_field_quad(
         material: materials.add(GameFieldMaterial {
             width: gamefield_size.x,
             height: gamefield_size.y,
+            texture: asset_server.load("background.png"),
         }),
         transform: Transform::from_translation(Vec3::new(0., 0., -1.)),
         ..default()
