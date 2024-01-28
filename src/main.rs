@@ -8,36 +8,21 @@ use std::{
 
 use bevy::{
     app::AppExit,
-    prelude::*,
-    render::render_resource::{
-        ShaderRef, 
-        AsBindGroup,
-    },
-    sprite::{
-        MaterialMesh2dBundle,
-        Material2dPlugin,
-        Material2d,
-    },
     ecs::system::SystemId,
+    prelude::*,
+    render::render_resource::{AsBindGroup, ShaderRef},
+    sprite::{Material2d, Material2dPlugin, MaterialMesh2dBundle},
     window::{PresentMode, WindowMode},
 };
 
 use rand::{random, Rng};
 
 mod constants;
-pub use constants::{
-    SNAKE_HEAD_RADIUS,
-    FOOD_RADIUS,
-};
+pub use constants::{FOOD_RADIUS, SNAKE_HEAD_RADIUS};
 
 mod systems;
 use systems::{
-    update_health,
-    update_score_output,
-    update_coins_output,
-    spawn_snake,
-    move_food,
-    player_input,
+    move_food, player_input, spawn_snake, update_coins_output, update_health, update_score_output,
 };
 
 // visual layers
@@ -122,94 +107,105 @@ impl From<GameFieldSize> for Vec2 {
 
 fn main() {
     let mut app = App::new();
-        app.add_plugins((
-            DefaultPlugins.set(WindowPlugin {
-                primary_window: Some(Window {
-                    present_mode: PresentMode::AutoVsync,
-                    // Tells wasm to resize the window according to the available canvas
-                    fit_canvas_to_parent: true,
-                    // Tells wasm not to override default event handling, like F5, Ctrl+R etc.
-                    prevent_default_event_handling: false,
-                    ..default()
-                }),
+    app.add_plugins((
+        DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                present_mode: PresentMode::AutoVsync,
+                // Tells wasm to resize the window according to the available canvas
+                fit_canvas_to_parent: true,
+                // Tells wasm not to override default event handling, like F5, Ctrl+R etc.
+                prevent_default_event_handling: false,
                 ..default()
             }),
-            Material2dPlugin::<HealthbarMaterial>::default(),
-            Material2dPlugin::<GameFieldMaterial>::default(),
-        ))
-        .insert_resource(Game {
-            game_over: false,
-            score: 0,
-            coins: 0.,
-        })
-        .insert_resource(CameraSettings {
-            follow_snake: false,
-        })
-        .insert_resource(GameOverMenuSelectedButton::Restart)
-        .insert_resource(PauseMenuSelectedButton::Quit)
-        .insert_resource(PauseState(false)) // game starts unpaused
-        .insert_resource(HighScore)
-        .insert_resource(DebugSettings {
-            output_shown: false,
-        })
-        .insert_resource(GameFieldSize {
-            x: 1920.,
-            y: 1080.,
-        })
-        .add_event::<GameOverEvent>()
-        .add_event::<ButtonHighlightedEvent>()
-        .add_event::<RestartEvent>()
-        .add_event::<PauseGameEvent>()
-        .add_event::<UpgradeMenuButtonClickedEvent>()
-        .add_systems(
-            Startup,
+            ..default()
+        }),
+        Material2dPlugin::<HealthbarMaterial>::default(),
+        Material2dPlugin::<GameFieldMaterial>::default(),
+        UiMaterialPlugin::<IconHoverEffectMaterial>::default(),
+    ))
+    .insert_resource(Game {
+        game_over: false,
+        score: 0,
+        coins: 0.,
+    })
+    .insert_resource(CameraSettings {
+        follow_snake: false,
+    })
+    .insert_resource(GameOverMenuSelectedButton::Restart)
+    .insert_resource(PauseMenuSelectedButton::Quit)
+    .insert_resource(PauseState(false)) // game starts unpaused
+    .insert_resource(HighScore)
+    .insert_resource(DebugSettings {
+        output_shown: false,
+    })
+    .insert_resource(GameFieldSize { x: 1920., y: 1080. })
+    .add_event::<UpgradeIconClickedEvent>()
+    .add_event::<GameOverEvent>()
+    .add_event::<ButtonHighlightedEvent>()
+    .add_event::<RestartEvent>()
+    .add_event::<PauseGameEvent>()
+    .add_event::<UpgradeMenuButtonClickedEvent>()
+    .add_systems(
+        Startup,
+        (
+            setup,
+            spawn_game_field_quad.after(setup),
+            spawn_score_output,
+            spawn_coins_output,
+            spawn_snake,
+            spawn_debug_output,
+            spawn_food,
+            spawn_pause_menu,
+            spawn_game_over_splash,
+        ),
+    )
+    .add_systems(
+        Update,
+        (
+            // these run only while the game over screen is being displayed
             (
-                setup,
-                spawn_game_field_quad.after(setup),
-                spawn_score_output,
-                spawn_coins_output,
-                spawn_snake,
-                spawn_debug_output,
-                spawn_food,
-                spawn_pause_menu,
-                spawn_game_over_splash,
-            ),
-        )
-        .add_systems(
-            Update,
+                restart,
+                menu_navigation,
+                update_high_score,
+                game_over_menu_selected_button_update,
+                on_restart_clicked,
+            )
+            .run_if(game_is_over),
+            // these run whenever the game is "running" (i.e not paused, and not over)
             (
-                // can only restart the game if the game is over, atm, this may change in the
-                // future so make sure to remove the run condition if it does.
-                (
-                    restart,
-                    menu_navigation,
-                    update_high_score,
-                    game_over_menu_selected_button_update,
-                    on_restart_clicked,
-                ).run_if(game_is_over),
-                (
-                    update_score_output,
-                    player_input,
-                    update_coins_output,
-                    update_health_material,
-                    update_health,
-                    move_food.run_if(any_with_component::<Food>()),
-                ).run_if(not(game_is_over).and_then(not(game_is_paused))),
+                update_score_output,
+                player_input,
+                update_health_material,
+                update_health,
+                move_food.run_if(any_with_component::<Food>()),
                 collide_with_self.run_if(snake_is_big_enough),
-                drag.run_if(not(game_is_paused)),
-                update_debug_output.run_if(debug_output_shown),
+                drag,
                 spawn_coins
                     .run_if(not(any_with_component::<CoinBag>()).and_then(random_chance(0.02))),
-                coinbag_leak.run_if(any_with_component::<CoinBag>().and_then(not(game_is_paused))),
+                coinbag_leak.run_if(any_with_component::<CoinBag>()),
                 spawn_food.run_if(any_component_removed::<Food>()),
-                consume_items.run_if(any_with_component::<Food>().or_else(any_with_component::<CoinBag>())),
+                consume_items
+                    .run_if(any_with_component::<Food>().or_else(any_with_component::<CoinBag>())),
                 move_tail.run_if(any_with_component::<SnakeTailNode>()),
+            )
+            .run_if(not(game_is_over).and_then(not(game_is_paused))),
+            // these run while the upgrades menu is shown
+            (
+                on_upgrade_clicked, 
+                upgrade_menu_event_handler,
+            )
+            .run_if(game_is_paused.and_then(any_with_component::<UpgradesMenu>())),
+            // these always run, no matter what
+            (
+                update_coins_output,
                 on_quit_clicked,
                 show_game_over,
                 pause_menu_event_handler,
                 upgrade_menu_handler,
+                update_debug_output.run_if(debug_output_shown),
             ),
-        );
+        ),
+    );
 
     let spawn_upgrades_menu = app.world.register_system(spawn_upgrades_menu);
 
@@ -219,36 +215,101 @@ fn main() {
         spawn_upgrades_menu,
     });
     app.insert_resource(Upgrades {
-        upgrades: vec![
-            Upgrade {
-                icon: "split.png".into(),
-                name: "Split Snake".into(),
-                description: "Splits your snake in half, reducing the length of your tail by 50%".into(),
-                system: split_snake,
-                price: 100.0,
-            }
-        ]
+        selected_index: 0,
+        upgrades: vec![Upgrade {
+            id: 0, // MUST BE UNIQUE! Easiest way is to just sequentially allocate them manually
+            icon: "split.png".into(),
+            name: "Split Snake".into(),
+            description: "Splits your snake in half, reducing the length of your tail by 50%"
+                .into(),
+            system: split_snake,
+            price: 100.0,
+        }],
     });
 
     app.run();
 }
 
-pub fn split_snake(
-    
+pub fn upgrade_menu_event_handler(
+    upgrade_icons: Query<(&UpgradeIcon, &Interaction), (With<UpgradeIcon>, Changed<Interaction>)>,
+    mut ev_upgrade_icon_clicked: EventWriter<UpgradeIconClickedEvent>,
+    mut upgrades: ResMut<Upgrades>,
+    mut materials: ResMut<Assets<IconHoverEffectMaterial>>,
+    game: Res<Game>,
 ) {
-    todo!("Snake splitting not yet implemented");
+    for (icon, interaction) in &upgrade_icons {
+        let hover_effect_material = materials.iter_mut().find(|(_,m)| m.upgrade_id == icon.upgrade.id);
+        match *interaction {
+            Interaction::Pressed => {
+                if let Some((_, hover_effect_material)) = hover_effect_material {
+                    hover_effect_material.color = if game.coins > icon.upgrade.price {
+                        Color::GREEN.into()
+                    } else {
+                        Color::RED.into()
+                    }
+                }
+                ev_upgrade_icon_clicked.send(UpgradeIconClickedEvent { icon: icon.clone() });
+            }
+            Interaction::Hovered => {
+                let index = upgrades.index_of(&icon.upgrade);
+                if let Some(index) = index {
+                    upgrades.selected_index = index;
+                    if let Some((_, hover_effect_material)) = hover_effect_material {
+                        hover_effect_material.highlight = 1;
+                    }
+                } else {
+                    // unreachable
+                    panic!("Somehow the user has hovered over an upgrade that doesn't exist!");
+                }
+            }
+            Interaction::None => {
+                // todo: "undo" any hover effects applied
+                let index = upgrades.index_of(&icon.upgrade);
+                if let Some(index) = index {
+                    upgrades.selected_index = index;
+                    if let Some((_, hover_effect_material)) = hover_effect_material {
+                        hover_effect_material.highlight = 0;
+                        hover_effect_material.color = Color::WHITE.into();
+                    }
+                } else {
+                    // unreachable
+                    panic!("Somehow the user has hovered over an upgrade that doesn't exist!");
+                }
+            }
+        }
+    }
+}
+
+pub fn split_snake(
+    mut commands: Commands,
+    tail_nodes: Query<Entity, With<SnakeTailNode>>,
+) {
+    let tail_node_count = tail_nodes.iter().count();
+    for (i, tail_node) in tail_nodes.iter().enumerate() {
+        if i > (tail_node_count / 2) {
+            commands.entity(tail_node).despawn();
+        }
+    }
 }
 
 #[derive(Resource)]
 pub struct Upgrades {
     upgrades: Vec<Upgrade>,
+    selected_index: usize,
 }
 
-#[derive(Clone)]
+impl Upgrades {
+    fn index_of(&self, upgrade: &Upgrade) -> Option<usize> {
+        self.upgrades.iter().position(|candidate| *candidate == *upgrade)
+    }
+}
+
+#[derive(Clone, PartialEq)]
 pub struct Upgrade {
+    id: usize,
     price: f32,
     system: SystemId,
-    icon: String, // icon path, to be loaded by the asset loader
+    icon: String,           // icon path, to be loaded by the asset loader
     name: String,
     #[allow(dead_code)] // we'll get around to showing this eventually
     description: String,
@@ -266,14 +327,26 @@ pub fn upgrade_menu_handler(
     mut commands: Commands,
     mut ev_upgrade_menu_pressed: EventReader<UpgradeMenuButtonClickedEvent>,
     mut upgrades_menu: Query<&mut Visibility, With<UpgradesMenu>>,
+    mut pause_menu: Query<
+        &mut Visibility,
+        (
+            With<PauseMenu>,
+            Without<UpgradesMenu>,
+            Without<QuitButton>,
+            Without<UpgradesButton>,
+        ),
+    >,
     systems: Res<Systems>,
 ) {
     for _ in ev_upgrade_menu_pressed.read() {
+        let mut pause_menu = pause_menu.single_mut();
         if upgrades_menu.is_empty() {
             commands.run_system(systems.spawn_upgrades_menu);
+            *pause_menu = Visibility::Hidden;
         } else {
             let mut upgrades_menu = upgrades_menu.single_mut();
             *upgrades_menu = Visibility::Visible;
+            *pause_menu = Visibility::Hidden;
         }
     }
 }
@@ -303,7 +376,7 @@ pub fn halve_snake_length(
 pub fn update_health_material(
     mut materials: ResMut<Assets<HealthbarMaterial>>,
     snake: Query<&Snake>,
-    ) {
+) {
     let snake = snake.single();
     for (_, material) in materials.iter_mut() {
         material.health = snake.health / 100.0;
@@ -322,7 +395,7 @@ pub fn random_chance(chance: f32) -> impl FnMut() -> bool {
 
 #[derive(Component)]
 pub struct CoinBag {
-    value: f32
+    value: f32,
 }
 
 // the minimum distance from the edge of the screen that coins spawn at
@@ -402,13 +475,13 @@ pub fn spawn_pause_menu(mut commands: Commands, asset_server: Res<AssetServer>) 
                         },
                     ));
                     parent
-                        .spawn(NodeBundle { 
+                        .spawn(NodeBundle {
                             style: Style {
                                 flex_direction: FlexDirection::Column,
                                 align_items: AlignItems::Center,
                                 ..default()
                             },
-                            ..default() 
+                            ..default()
                         })
                         .with_children(|parent| {
                             parent
@@ -458,13 +531,35 @@ pub fn pause_menu_event_handler(
     mut keys: ResMut<Input<KeyCode>>,
     gamepads: Res<Gamepads>,
     mut buttons: ResMut<Input<GamepadButton>>,
-    mut menu_visibility: Query<&mut Visibility, (With<PauseMenu>, Without<QuitButton>, Without<UpgradesButton>)>,
+    mut menu_visibility: Query<
+        &mut Visibility,
+        (
+            With<PauseMenu>,
+            Without<QuitButton>,
+            Without<UpgradesButton>,
+        ),
+    >,
     mut ev_paused: EventReader<PauseGameEvent>,
     mut selected_button: ResMut<PauseMenuSelectedButton>,
     mut ev_quit: EventWriter<AppExit>,
     mut ev_upgrades_menu: EventWriter<UpgradeMenuButtonClickedEvent>,
-    mut quit_button_style: Query<&mut Style, (With<PauseMenu>, With<QuitButton>, Without<UpgradesButton>)>,
-    mut upgrades_button_style: Query<&mut Style, (With<PauseMenu>, With<UpgradesButton>, Without<QuitButton>)>,
+    mut quit_button_style: Query<
+        &mut Style,
+        (With<PauseMenu>, With<QuitButton>, Without<UpgradesButton>),
+    >,
+    mut upgrades_button_style: Query<
+        &mut Style,
+        (With<PauseMenu>, With<UpgradesButton>, Without<QuitButton>),
+    >,
+    mut upgrades_menu_visibility: Query<
+        &mut Visibility,
+        (
+            With<UpgradesMenu>,
+            Without<PauseMenu>,
+            Without<QuitButton>,
+            Without<UpgradesButton>,
+        ),
+    >,
 ) {
     let mut quit_button_style = quit_button_style.single_mut();
     let mut upgrades_button_style = upgrades_button_style.single_mut();
@@ -496,23 +591,37 @@ pub fn pause_menu_event_handler(
     }
     let PauseState(paused) = *pause_state;
     if paused {
+        // this code is such a clusterfuck I get a headache trying to read it
+        // please can someone refactor it (T-T)
         if keys.clear_just_pressed(KeyCode::P) || keys.clear_just_pressed(KeyCode::Escape) {
-            *menu_visibility = Visibility::Hidden;
-            *pause_state = PauseState(false);
+            if !upgrades_menu_visibility.is_empty() {
+                let mut upgrades_menu_visibility = upgrades_menu_visibility.single_mut();
+                match *upgrades_menu_visibility {
+                    // we hit ESC while the upgrades menu is hidden and the pause menu is shown
+                    // so we want to hide the pause menu and unpause the game
+                    Visibility::Hidden => {
+                        *menu_visibility = Visibility::Hidden;
+                        *pause_state = PauseState(false);
+                    }
+                    // we hit ESC when the upgrades menu is shown, so we want to hide the upgrades
+                    // menu and show the pause menu
+                    _ => {
+                        *upgrades_menu_visibility = Visibility::Hidden;
+                        *menu_visibility = Visibility::Visible;
+                    }
+                }
+            } else {
+                // we hit ESC before we'd even opened the upgrades menu for the first time, so we want to hide the
+                // pause menu and unpause the game
+                *menu_visibility = Visibility::Hidden;
+                *pause_state = PauseState(false);
+            }
         }
         if keys.clear_just_pressed(KeyCode::Up) {
-            *selected_button = match *selected_button {
-                PauseMenuSelectedButton::Upgrades => PauseMenuSelectedButton::None,
-                PauseMenuSelectedButton::Quit => PauseMenuSelectedButton::Upgrades,
-                PauseMenuSelectedButton::None => PauseMenuSelectedButton::Quit,
-            };
+            selected_button.prev();
         }
         if keys.clear_just_pressed(KeyCode::Down) {
-            *selected_button = match *selected_button {
-                PauseMenuSelectedButton::Upgrades => PauseMenuSelectedButton::Quit,
-                PauseMenuSelectedButton::Quit => PauseMenuSelectedButton::None,
-                PauseMenuSelectedButton::None => PauseMenuSelectedButton::Upgrades,
-            };
+            selected_button.next();
         }
         if keys.clear_just_pressed(KeyCode::Return) {
             match *selected_button {
@@ -547,20 +656,12 @@ pub fn pause_menu_event_handler(
                 *menu_visibility = Visibility::Hidden;
                 *pause_state = PauseState(false);
             }
-            if buttons.clear_just_pressed(left_dpad)  {
-                *selected_button = match *selected_button {
-                    PauseMenuSelectedButton::Upgrades => PauseMenuSelectedButton::None,
-                    PauseMenuSelectedButton::Quit => PauseMenuSelectedButton::Upgrades,
-                    PauseMenuSelectedButton::None => PauseMenuSelectedButton::Quit,
-                };
+            if buttons.clear_just_pressed(left_dpad) {
+                selected_button.next();
             }
 
             if buttons.clear_just_pressed(right_dpad) {
-                *selected_button = match *selected_button {
-                    PauseMenuSelectedButton::Upgrades => PauseMenuSelectedButton::Quit,
-                    PauseMenuSelectedButton::Quit => PauseMenuSelectedButton::None,
-                    PauseMenuSelectedButton::None => PauseMenuSelectedButton::Upgrades,
-                };
+                selected_button.prev();
             }
             if buttons.clear_just_pressed(a_button) {
                 match *selected_button {
@@ -819,24 +920,24 @@ pub fn on_restart_clicked(
     }
 }
 
+#[derive(Event)]
+pub struct UpgradeIconClickedEvent {
+    icon: UpgradeIcon,
+}
+
 pub fn on_upgrade_clicked(
     mut commands: Commands,
     mut game: ResMut<Game>,
-    mut interaction_query: Query<(&Interaction, &UpgradeIcon), (Changed<Interaction>, With<UpgradeIcon>)>,
+    mut ev_upgrade_clicked: EventReader<UpgradeIconClickedEvent>,
 ) {
-    for (interaction, upgrade) in &mut interaction_query {
-        match *interaction {
-            Interaction::Pressed => {
-                if game.coins > upgrade.upgrade.price {
-                    game.coins -= upgrade.upgrade.price;
-                    commands.run_system(upgrade.upgrade.system);
-                } // todo: else show user feedback that the upgrade is too expensive?
-            },
-            Interaction::Hovered => {
-                // todo: make the icon change color?
-                // todo: show a tooltip with the upgrade description
-            },
-            Interaction::None => {},
+    for ev in ev_upgrade_clicked.read() {
+        let icon = &ev.icon;
+        if game.coins > icon.upgrade.price {
+            game.coins -= icon.upgrade.price;
+            commands.run_system(icon.upgrade.system);
+        } else {
+            // todo: somehow give user feedback that they can't afford it
+            info!("Not enough money for {}", icon.upgrade.name);
         }
     }
 }
@@ -868,11 +969,29 @@ pub enum GameOverMenuSelectedButton {
     None,
 }
 
-#[derive(Resource, Clone)]
+#[derive(Resource, Clone, PartialEq, Eq)]
 pub enum PauseMenuSelectedButton {
+    None,
     Upgrades,
     Quit,
-    None,
+}
+
+impl PauseMenuSelectedButton {
+    fn next(&mut self) {
+        *self = match *self {
+            Self::None => Self::Upgrades,
+            Self::Upgrades => Self::Quit,
+            Self::Quit => Self::None,
+        }
+    }
+
+    fn prev(&mut self) {
+        *self = match *self {
+            Self::None => Self::Quit,
+            Self::Upgrades => Self::None,
+            Self::Quit => Self::Upgrades,
+        }
+    }
 }
 
 pub fn spawn_game_over_splash(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -1039,7 +1158,9 @@ pub fn consume_items(
     // consume_coins
     if !coins.is_empty() {
         let (coins_transform, coins_entity, coins) = coins.single();
-        if coins_transform.translation.distance(head.translation) < (SNAKE_HEAD_RADIUS + FOOD_RADIUS) {
+        if coins_transform.translation.distance(head.translation)
+            < (SNAKE_HEAD_RADIUS + FOOD_RADIUS)
+        {
             commands.entity(coins_entity).despawn();
             game.coins += coins.value;
             // game.coins += (rand::thread_rng().gen_range(8.0..12.0f32) * 100.0).round() / 100.0;
@@ -1059,6 +1180,7 @@ pub fn update_debug_output(
     food: Query<(&Transform, &Velocity), With<Food>>,
     tail_nodes: Query<(), With<SnakeTailNode>>,
     game: Res<Game>,
+    upgrades: Res<Upgrades>,
 ) {
     let mut text = texts.single_mut();
     let snake = snakes.single();
@@ -1080,6 +1202,7 @@ pub fn update_debug_output(
     let _ = write!(s, "Snake head position: {position}\n");
     let _ = write!(s, "Snake tail sections: {tail_node_count}\n");
     let _ = write!(s, "Score: {0}\n", game.score);
+    let _ = write!(s, "Upgrades selected index: {0}\n", upgrades.selected_index);
     text.sections[0].value = s;
 }
 
@@ -1172,7 +1295,7 @@ pub fn spawn_coins_output(mut commands: Commands, game: Res<Game>, asset_server:
                         font_size: 32.0,
                         ..default()
                     },
-                ), 
+                ),
                 CoinbagValueOutput,
             ));
         });
@@ -1197,8 +1320,7 @@ pub fn spawn_game_field_quad(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<GameFieldMaterial>>,
     gamefield_size: Res<GameFieldSize>,
-    ) {
-
+) {
     let gamefield_size = Vec2 {
         x: gamefield_size.x,
         y: gamefield_size.y,
@@ -1242,7 +1364,6 @@ pub fn spawn_score_output(mut commands: Commands, game: Res<Game>, asset_server:
         });
 }
 
-
 #[derive(Component)]
 pub struct Snake {
     health: f32,
@@ -1274,10 +1395,7 @@ pub struct Systems {
     spawn_upgrades_menu: SystemId,
 }
 
-fn setup(
-    mut commands: Commands, 
-    mut window: Query<&mut Window>,
-) {
+fn setup(mut commands: Commands, mut window: Query<&mut Window>) {
     commands.spawn(Camera2dBundle::default());
     let mut window = window.single_mut();
     // set the window to fullscreen on startup
@@ -1287,68 +1405,101 @@ fn setup(
     let _ = window.mode.set(Box::new(WindowMode::BorderlessFullscreen));
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct UpgradeIcon {
     upgrade: Upgrade,
+}
+
+#[derive(AsBindGroup, Asset, TypePath, Clone)]
+pub struct IconHoverEffectMaterial {
+    upgrade_id: usize,
+    #[uniform(0)]
+    color: Vec4,
+    #[uniform(1)]
+    highlight: u32, // actually a bool in disguise 🤫
+}
+
+impl UiMaterial for IconHoverEffectMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/icon_hover_effect.wgsl".into()
+    }
 }
 
 fn spawn_upgrades_menu(
     mut commands: Commands,
     upgrades: Res<Upgrades>,
     asset_server: Res<AssetServer>,
+    mut materials: ResMut<Assets<IconHoverEffectMaterial>>,
 ) {
-    commands.spawn(NodeBundle {
-        style: Style {
-            width: Val::Percent(100.),
-            height: Val::Percent(100.),
-            padding: UiRect::px(50., 0., 200., 0.),
-            align_items: AlignItems::FlexStart,
-            display: Display::Grid,
-            justify_content: JustifyContent::FlexStart,
-            ..default()
-        },
-        background_color: BackgroundColor(Color::rgba(0., 0., 0., 0.7)),
-        ..default()
-    }).with_children(|parent| {
-        for upgrade in &upgrades.upgrades {
-            parent.spawn(NodeBundle {
+    commands
+        .spawn((
+            UpgradesMenu,
+            NodeBundle {
                 style: Style {
-                    width: Val::Px(64.),
-                    height: Val::Px(64.),
-                    margin: UiRect::all(Val::Px(32.)),
-                    flex_direction: FlexDirection::Column,
+                    width: Val::Percent(100.),
+                    height: Val::Percent(100.),
+                    padding: UiRect::px(50., 0., 200., 0.),
+                    align_items: AlignItems::FlexStart,
+                    display: Display::Grid,
+                    justify_content: JustifyContent::FlexStart,
                     ..default()
                 },
                 background_color: BackgroundColor(Color::rgba(0., 0., 0., 0.7)),
                 ..default()
-            }).with_children(|parent| {
-                parent.spawn(
-                    (
+            },
+        ))
+        .with_children(|parent| {
+            for upgrade in &upgrades.upgrades {
+                parent
+                    .spawn((
                         UpgradeIcon {
                             upgrade: upgrade.clone(),
                         },
-                        ImageBundle {
-                            image: UiImage::new(asset_server.load(format!("upgrades/{0}", upgrade.icon))),
+                        ButtonBundle {
                             style: Style {
+                                width: Val::Px(64.),
+                                height: Val::Px(64.),
+                                margin: UiRect::all(Val::Px(32.)),
+                                flex_direction: FlexDirection::Column,
                                 ..default()
                             },
-                            ..default()
-                        }
-                    )
-                );
-                parent.spawn(
-                    TextBundle::from_section(
-                        upgrade.name.clone(),
-                        TextStyle {
-                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                            font_size: 32.,
+                            background_color: BackgroundColor(Color::rgba(0., 0., 0., 0.7)),
                             ..default()
                         },
-                    )
-                );
-            });
-        }
-    });
+                    ))
+                    .with_children(|parent| {
+                        parent.spawn(ImageBundle {
+                            image: UiImage::new(
+                                asset_server.load(format!("upgrades/{0}", upgrade.icon)),
+                            ),
+                            style: Style { ..default() },
+                            ..default()
+                        });
+                        parent.spawn(MaterialNodeBundle {
+                            style: Style {
+                                position_type: PositionType::Absolute,
+                                width: Val::Px(64.),
+                                height: Val::Px(64.),
+                                ..default()
+                            },
+                            material: materials.add(IconHoverEffectMaterial {
+                                upgrade_id: upgrade.id,
+                                color: Color::WHITE.into(),
+                                highlight: 0,
+                            }),
+                            ..default()
+                        });
+                        parent.spawn(TextBundle::from_section(
+                            upgrade.name.clone(),
+                            TextStyle {
+                                font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                font_size: 32.,
+                                ..default()
+                            },
+                        ));
+                    });
+            }
+        });
 }
 
 fn spawn_food(
@@ -1407,4 +1558,3 @@ impl Game {
 pub struct CameraSettings {
     follow_snake: bool,
 }
-

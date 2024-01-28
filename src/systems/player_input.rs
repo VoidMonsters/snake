@@ -16,7 +16,6 @@ pub fn player_input(
     time: Res<Time>,
     mut snake: Query<(&mut Transform, &mut Velocity), With<Snake>>,
     mut keys: ResMut<Input<KeyCode>>,
-    // mut window: Query<&mut Window>,
     gamepads: Res<Gamepads>,
     axes: Res<Axis<GamepadAxis>>,
     button_axes: Res<Axis<GamepadButton>>,
@@ -29,7 +28,6 @@ pub fn player_input(
     gamefield_size: Res<GameFieldSize>,
     mut camera_settings: ResMut<CameraSettings>,
 ) {
-    // let mut window = window.single_mut();
     let gamepad = gamepads.iter().next();
     let (mut head_transform, mut head_velocity) = snake.single_mut();
     let Velocity(ref mut head_velocity) = *head_velocity;
