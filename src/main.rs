@@ -22,11 +22,13 @@ pub use constants::{FOOD_RADIUS, SNAKE_HEAD_RADIUS};
 
 mod systems;
 use systems::{
-    move_food, player_input, spawn_snake, update_coins_output, update_health, update_score_output,
+    move_food, player_input, spawn_snake, update_coins_output, update_health, update_high_score,
+    update_score_output, update_health_material, spawn_coins, upgrade_menu_event_handler, upgrade_menu_handler, 
+    debug_output_shown, split_snake, increase_hunger, increase_speed, 
 };
 
 #[derive(Resource)]
-struct HungerRate(f32);
+pub struct HungerRate(f32);
 
 // visual layers
 const PLAYER_LAYER: f32 = 0.;
@@ -126,6 +128,7 @@ fn main() {
         Material2dPlugin::<GameFieldMaterial>::default(),
         UiMaterialPlugin::<IconHoverEffectMaterial>::default(),
     ))
+    .insert_resource(SnakeMaxHealth(100.))
     .insert_resource(HungerRate(5.))
     .insert_resource(SnakeSpeed {
         analog: 500.,
@@ -178,7 +181,7 @@ fn main() {
                 game_over_menu_selected_button_update,
                 on_restart_clicked,
             )
-            .run_if(game_is_over),
+                .run_if(game_is_over),
             // these run whenever the game is "running" (i.e not paused, and not over)
             (
                 update_score_output,
@@ -196,13 +199,10 @@ fn main() {
                     .run_if(any_with_component::<Food>().or_else(any_with_component::<CoinBag>())),
                 move_tail.run_if(any_with_component::<SnakeTailNode>()),
             )
-            .run_if(not(game_is_over).and_then(not(game_is_paused))),
+                .run_if(not(game_is_over).and_then(not(game_is_paused))),
             // these run while the upgrades menu is shown
-            (
-                on_upgrade_clicked, 
-                upgrade_menu_event_handler,
-            )
-            .run_if(game_is_paused.and_then(any_with_component::<UpgradesMenu>())),
+            (on_upgrade_clicked, upgrade_menu_event_handler)
+                .run_if(game_is_paused.and_then(any_with_component::<UpgradesMenu>())),
             // these always run, no matter what
             (
                 update_coins_output,
@@ -219,6 +219,7 @@ fn main() {
 
     let split_snake = app.world.register_system(split_snake);
     let increase_speed = app.world.register_system(increase_speed);
+    let increase_hunger = app.world.register_system(increase_hunger);
 
     app.insert_resource(Systems {
         spawn_upgrades_menu,
@@ -242,7 +243,15 @@ fn main() {
                 description: "Increases your snake's speed"
                     .into(),
                 system: increase_speed,
-                price: 100.0,
+                price: 25.0,
+            },
+            Upgrade {
+                id: 2,
+                icon: "increase_hunger.png".into(),
+                name: "Stomach Capacity".into(),
+                description: "Allows you to eat more mice before you are full, increasing the length of time it takes for you to die of hunger.".into(),
+                system: increase_hunger,
+                price: 50.0,
             },
         ],
     });
@@ -256,75 +265,6 @@ pub struct SnakeSpeed {
     discrete: f32,
 }
 
-pub fn increase_speed(
-    mut speed: ResMut<SnakeSpeed>,
-) {
-    speed.analog += 50.;
-    speed.discrete += 1.;
-}
-
-pub fn upgrade_menu_event_handler(
-    upgrade_icons: Query<(&UpgradeIcon, &Interaction), (With<UpgradeIcon>, Changed<Interaction>)>,
-    mut ev_upgrade_icon_clicked: EventWriter<UpgradeIconClickedEvent>,
-    mut upgrades: ResMut<Upgrades>,
-    mut materials: ResMut<Assets<IconHoverEffectMaterial>>,
-    game: Res<Game>,
-) {
-    for (icon, interaction) in &upgrade_icons {
-        let hover_effect_material = materials.iter_mut().find(|(_,m)| m.upgrade_id == icon.upgrade.id);
-        match *interaction {
-            Interaction::Pressed => {
-                if let Some((_, hover_effect_material)) = hover_effect_material {
-                    hover_effect_material.color = if game.coins > icon.upgrade.price {
-                        Color::GREEN.into()
-                    } else {
-                        Color::RED.into()
-                    }
-                }
-                ev_upgrade_icon_clicked.send(UpgradeIconClickedEvent { icon: icon.clone() });
-            }
-            Interaction::Hovered => {
-                let index = upgrades.index_of(&icon.upgrade);
-                if let Some(index) = index {
-                    upgrades.selected_index = index;
-                    if let Some((_, hover_effect_material)) = hover_effect_material {
-                        hover_effect_material.highlight = 1;
-                    }
-                } else {
-                    // unreachable
-                    panic!("Somehow the user has hovered over an upgrade that doesn't exist!");
-                }
-            }
-            Interaction::None => {
-                let index = upgrades.index_of(&icon.upgrade);
-                if let Some(index) = index {
-                    upgrades.selected_index = index;
-                    if let Some((_, hover_effect_material)) = hover_effect_material {
-                        hover_effect_material.highlight = 0;
-                        hover_effect_material.color = Color::WHITE.into();
-                    }
-                } else {
-                    // unreachable
-                    panic!("Somehow the user has hovered over an upgrade that doesn't exist!");
-                }
-            }
-        }
-    }
-}
-
-// todo: should this also halve the hunger rate, or no?
-pub fn split_snake(
-    mut commands: Commands,
-    tail_nodes: Query<Entity, With<SnakeTailNode>>,
-) {
-    let tail_node_count = tail_nodes.iter().count();
-    for (i, tail_node) in tail_nodes.iter().enumerate() {
-        if i > (tail_node_count / 2) {
-            commands.entity(tail_node).despawn();
-        }
-    }
-}
-
 #[derive(Resource)]
 pub struct Upgrades {
     upgrades: Vec<Upgrade>,
@@ -333,7 +273,9 @@ pub struct Upgrades {
 
 impl Upgrades {
     fn index_of(&self, upgrade: &Upgrade) -> Option<usize> {
-        self.upgrades.iter().position(|candidate| *candidate == *upgrade)
+        self.upgrades
+            .iter()
+            .position(|candidate| *candidate == *upgrade)
     }
 }
 
@@ -342,72 +284,14 @@ pub struct Upgrade {
     id: usize,
     price: f32,
     system: SystemId,
-    icon: String,           // icon path, to be loaded by the asset loader
+    icon: String, // icon path, to be loaded by the asset loader
     name: String,
     #[allow(dead_code)] // we'll get around to showing this eventually
     description: String,
 }
 
-#[derive(Event)]
-pub struct UpgradePurchasedEvent {
-    upgrade: Upgrade,
-}
-
 #[derive(Component)]
 pub struct UpgradesMenu;
-
-pub fn upgrade_menu_handler(
-    mut commands: Commands,
-    mut ev_upgrade_menu_pressed: EventReader<UpgradeMenuButtonClickedEvent>,
-    mut upgrades_menu: Query<&mut Visibility, With<UpgradesMenu>>,
-    mut pause_menu: Query<
-        &mut Visibility,
-        (
-            With<PauseMenu>,
-            Without<UpgradesMenu>,
-            Without<QuitButton>,
-            Without<UpgradesButton>,
-        ),
-    >,
-    systems: Res<Systems>,
-) {
-    for _ in ev_upgrade_menu_pressed.read() {
-        let mut pause_menu = pause_menu.single_mut();
-        if upgrades_menu.is_empty() {
-            commands.run_system(systems.spawn_upgrades_menu);
-            *pause_menu = Visibility::Hidden;
-        } else {
-            let mut upgrades_menu = upgrades_menu.single_mut();
-            *upgrades_menu = Visibility::Visible;
-            *pause_menu = Visibility::Hidden;
-        }
-    }
-}
-
-pub fn upgrade_purchased(
-    mut commands: Commands,
-    mut ev_upgrade_purchased: EventReader<UpgradePurchasedEvent>,
-) {
-    for ev in ev_upgrade_purchased.read() {
-        commands.run_system(ev.upgrade.system);
-    }
-}
-
-pub fn update_health_material(
-    mut materials: ResMut<Assets<HealthbarMaterial>>,
-    snake: Query<&Snake>,
-) {
-    let snake = snake.single();
-    for (_, material) in materials.iter_mut() {
-        material.health = snake.health / 100.0;
-    }
-}
-
-pub fn update_high_score(game: Res<Game>, high_score: Res<HighScore>) {
-    if game.score > high_score.get() {
-        high_score.save(game.score);
-    }
-}
 
 pub fn random_chance(chance: f32) -> impl FnMut() -> bool {
     move || -> bool { random::<f32>() < chance }
@@ -418,44 +302,8 @@ pub struct CoinBag {
     value: f32,
 }
 
-// the minimum distance from the edge of the screen that coins spawn at
-const COIN_BOUNDARY: f32 = 128.;
-
-pub fn spawn_coins(mut commands: Commands, asset_server: Res<AssetServer>, window: Query<&Window>) {
-    let mut coins_location = Vec3::random();
-    let window = window.single();
-    let boundary_x = (window.resolution.width() / 2.) - COIN_BOUNDARY;
-    let boundary_y = (window.resolution.height() / 2.) - COIN_BOUNDARY;
-
-    coins_location.x -= 0.5;
-    coins_location.y -= 0.5;
-
-    coins_location.x *= boundary_x * 2.;
-    coins_location.y *= boundary_y * 2.;
-
-    coins_location.z = FOOD_LAYER;
-    commands.spawn((
-        CoinBag {
-            value: (rand::thread_rng().gen_range(8.0..12.0f32) * 100.0).round() / 100.0,
-        },
-        SpriteBundle {
-            texture: asset_server.load("sprites/coinbag.png"),
-            transform: Transform {
-                translation: coins_location,
-                scale: Vec3::new(0.3, 0.3, 1.0),
-                ..default()
-            },
-            ..default()
-        },
-    ));
-}
-
 #[derive(Component)]
 pub struct PauseMenu;
-
-pub fn debug_output_shown(debug_settings: Res<DebugSettings>) -> bool {
-    debug_settings.output_shown
-}
 
 pub fn spawn_pause_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
@@ -1116,6 +964,9 @@ pub fn move_tail(
     }
 }
 
+#[derive(Resource)]
+pub struct SnakeMaxHealth(f32);
+
 pub const FOOD_HEALTH: f32 = 30.;
 
 pub fn consume_items(
@@ -1129,6 +980,7 @@ pub fn consume_items(
     mut game: ResMut<Game>,
     mut snake: Query<&mut Snake>,
     mut hunger_rate: ResMut<HungerRate>,
+    max_health: Res<SnakeMaxHealth>,
 ) {
     let head = head.single();
     let mut snake = snake.single_mut();
@@ -1141,7 +993,7 @@ pub fn consume_items(
             commands.entity(food_entity).despawn();
             game.score += 1;
             snake.health += FOOD_HEALTH;
-            snake.health = snake.health.clamp(0., 100.);
+            snake.health = snake.health.clamp(0., max_health.0);
             hunger_rate.0 += 0.5; // as the snake eats, it gets hungrier faster
 
             let tail_nodes_vec: Vec<_> = tail_nodes.iter().collect();
@@ -1521,6 +1373,14 @@ fn spawn_upgrades_menu(
                             TextStyle {
                                 font: asset_server.load("fonts/FiraSans-Bold.ttf"),
                                 font_size: 32.,
+                                ..default()
+                            },
+                        ));
+                        parent.spawn(TextBundle::from_section(
+                            format!("{0} coins", upgrade.price),
+                            TextStyle {
+                                font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                font_size: 16.,
                                 ..default()
                             },
                         ));
