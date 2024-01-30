@@ -25,6 +25,9 @@ use systems::{
     move_food, player_input, spawn_snake, update_coins_output, update_health, update_score_output,
 };
 
+#[derive(Resource)]
+struct HungerRate(f32);
+
 // visual layers
 const PLAYER_LAYER: f32 = 0.;
 const FOOD_LAYER: f32 = -1.;
@@ -123,6 +126,11 @@ fn main() {
         Material2dPlugin::<GameFieldMaterial>::default(),
         UiMaterialPlugin::<IconHoverEffectMaterial>::default(),
     ))
+    .insert_resource(HungerRate(5.))
+    .insert_resource(SnakeSpeed {
+        analog: 500.,
+        discrete: 10.,
+    })
     .insert_resource(Game {
         game_over: false,
         score: 0,
@@ -210,24 +218,49 @@ fn main() {
     let spawn_upgrades_menu = app.world.register_system(spawn_upgrades_menu);
 
     let split_snake = app.world.register_system(split_snake);
+    let increase_speed = app.world.register_system(increase_speed);
 
     app.insert_resource(Systems {
         spawn_upgrades_menu,
     });
     app.insert_resource(Upgrades {
         selected_index: 0,
-        upgrades: vec![Upgrade {
-            id: 0, // MUST BE UNIQUE! Easiest way is to just sequentially allocate them manually
-            icon: "split.png".into(),
-            name: "Split Snake".into(),
-            description: "Splits your snake in half, reducing the length of your tail by 50%"
-                .into(),
-            system: split_snake,
-            price: 100.0,
-        }],
+        upgrades: vec![
+            Upgrade {
+                id: 0, // MUST BE UNIQUE! Easiest way is to just sequentially allocate them manually
+                icon: "split.png".into(),
+                name: "Split Snake".into(),
+                description: "Splits your snake in half, reducing the length of your tail by 50%"
+                    .into(),
+                system: split_snake,
+                price: 100.0,
+            },
+            Upgrade {
+                id: 1, // MUST BE UNIQUE! Easiest way is to just sequentially allocate them manually
+                icon: "increase_speed.png".into(),
+                name: "Increase Speed".into(),
+                description: "Increases your snake's speed"
+                    .into(),
+                system: increase_speed,
+                price: 100.0,
+            },
+        ],
     });
 
     app.run();
+}
+
+#[derive(Resource)]
+pub struct SnakeSpeed {
+    analog: f32,
+    discrete: f32,
+}
+
+pub fn increase_speed(
+    mut speed: ResMut<SnakeSpeed>,
+) {
+    speed.analog += 50.;
+    speed.discrete += 1.;
 }
 
 pub fn upgrade_menu_event_handler(
@@ -263,7 +296,6 @@ pub fn upgrade_menu_event_handler(
                 }
             }
             Interaction::None => {
-                // todo: "undo" any hover effects applied
                 let index = upgrades.index_of(&icon.upgrade);
                 if let Some(index) = index {
                     upgrades.selected_index = index;
@@ -280,6 +312,7 @@ pub fn upgrade_menu_event_handler(
     }
 }
 
+// todo: should this also halve the hunger rate, or no?
 pub fn split_snake(
     mut commands: Commands,
     tail_nodes: Query<Entity, With<SnakeTailNode>>,
@@ -357,19 +390,6 @@ pub fn upgrade_purchased(
 ) {
     for ev in ev_upgrade_purchased.read() {
         commands.run_system(ev.upgrade.system);
-    }
-}
-
-pub fn halve_snake_length(
-    mut commands: Commands,
-    snake_tail_nodes: Query<Entity, With<SnakeTailNode>>,
-) {
-    let tail_nodes_vec: Vec<_> = snake_tail_nodes.iter().collect();
-    let tail_nodes_count = tail_nodes_vec.len();
-    for (i, snake_tail_node) in snake_tail_nodes.iter().enumerate() {
-        if i > (tail_nodes_count / 2) {
-            commands.entity(snake_tail_node).despawn();
-        }
     }
 }
 
@@ -1108,6 +1128,7 @@ pub fn consume_items(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut game: ResMut<Game>,
     mut snake: Query<&mut Snake>,
+    mut hunger_rate: ResMut<HungerRate>,
 ) {
     let head = head.single();
     let mut snake = snake.single_mut();
@@ -1121,6 +1142,7 @@ pub fn consume_items(
             game.score += 1;
             snake.health += FOOD_HEALTH;
             snake.health = snake.health.clamp(0., 100.);
+            hunger_rate.0 += 0.5; // as the snake eats, it gets hungrier faster
 
             let tail_nodes_vec: Vec<_> = tail_nodes.iter().collect();
             let tail_nodes_count = tail_nodes_vec.len();

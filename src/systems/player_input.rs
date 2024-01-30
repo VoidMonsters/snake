@@ -10,6 +10,7 @@ use crate::{
     GameFieldSize,
     CameraSettings,
     SNAKE_HEAD_RADIUS,
+    SnakeSpeed,
 };
 
 pub fn player_input(
@@ -27,12 +28,13 @@ pub fn player_input(
     mut camera_projection: Query<(&mut OrthographicProjection, &mut Transform), (With<Camera2d>, Without<Snake>)>,
     gamefield_size: Res<GameFieldSize>,
     mut camera_settings: ResMut<CameraSettings>,
+    snake_speed: Res<SnakeSpeed>,
 ) {
     let gamepad = gamepads.iter().next();
     let (mut head_transform, mut head_velocity) = snake.single_mut();
     let Velocity(ref mut head_velocity) = *head_velocity;
-    let accel_factor = 10.;
-    let analog_accel_factor = 500.;
+    let accel_factor = snake_speed.discrete;
+    let analog_accel_factor = snake_speed.analog;
     if let Some(gamepad) = gamepad {
         let axis_x = GamepadAxis {
             gamepad,
