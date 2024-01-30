@@ -81,6 +81,9 @@ impl HighScore {
 
 const BUTTON_FONT_SIZE: f32 = 30.;
 
+const PRIMARY_FONT_NAME:   &str = "fonts/FiraSans-Bold.ttf";
+const SECONDARY_FONT_NAME: &str = "fonts/FiraMono-Medium.ttf";
+
 fn get_button() -> ButtonBundle {
     ButtonBundle {
         style: Style {
@@ -337,7 +340,7 @@ pub fn spawn_pause_menu(mut commands: Commands, asset_server: Res<AssetServer>) 
                     parent.spawn(TextBundle::from_section(
                         "Paused",
                         TextStyle {
-                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                            font: asset_server.load(PRIMARY_FONT_NAME),
                             font_size: 72.0,
                             color: Color::WHITE,
                         },
@@ -358,7 +361,7 @@ pub fn spawn_pause_menu(mut commands: Commands, asset_server: Res<AssetServer>) 
                                     parent.spawn(TextBundle::from_section(
                                         "Upgrades",
                                         TextStyle {
-                                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                            font: asset_server.load(PRIMARY_FONT_NAME),
                                             font_size: BUTTON_FONT_SIZE,
                                             color: Color::WHITE,
                                         },
@@ -370,7 +373,7 @@ pub fn spawn_pause_menu(mut commands: Commands, asset_server: Res<AssetServer>) 
                                     parent.spawn(TextBundle::from_section(
                                         "Quit",
                                         TextStyle {
-                                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                            font: asset_server.load(PRIMARY_FONT_NAME),
                                             font_size: BUTTON_FONT_SIZE,
                                             color: Color::WHITE,
                                         },
@@ -896,7 +899,7 @@ pub fn spawn_game_over_splash(mut commands: Commands, asset_server: Res<AssetSer
                         TextBundle::from_section(
                             "Game Over",
                             TextStyle {
-                                font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                font: asset_server.load(PRIMARY_FONT_NAME),
                                 font_size: 72.0,
                                 ..default()
                             },
@@ -920,7 +923,7 @@ pub fn spawn_game_over_splash(mut commands: Commands, asset_server: Res<AssetSer
                                     parent.spawn(TextBundle::from_section(
                                         "Restart",
                                         TextStyle {
-                                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                            font: asset_server.load(PRIMARY_FONT_NAME),
                                             font_size: BUTTON_FONT_SIZE,
                                             color: Color::rgb(0.9, 0.9, 0.9),
                                         },
@@ -932,7 +935,7 @@ pub fn spawn_game_over_splash(mut commands: Commands, asset_server: Res<AssetSer
                                     parent.spawn(TextBundle::from_section(
                                         "Quit",
                                         TextStyle {
-                                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                            font: asset_server.load(PRIMARY_FONT_NAME),
                                             font_size: BUTTON_FONT_SIZE,
                                             color: Color::rgb(0.9, 0.9, 0.9),
                                         },
@@ -1081,7 +1084,7 @@ pub fn update_debug_output(
 }
 
 pub fn spawn_debug_output(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let font = asset_server.load("fonts/FiraMono-Medium.ttf");
+    let font = asset_server.load(SECONDARY_FONT_NAME);
     let mut text_bundle = TextBundle::from_sections([
         TextSection::from_style(TextStyle {
             font: font.clone(),
@@ -1154,7 +1157,7 @@ pub fn spawn_coins_output(mut commands: Commands, game: Res<Game>, asset_server:
                 TextBundle::from_section(
                     format!("Coins: {0}", game.coins),
                     TextStyle {
-                        font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                        font: asset_server.load(SECONDARY_FONT_NAME),
                         font_size: 32.0,
                         ..default()
                     },
@@ -1165,7 +1168,7 @@ pub fn spawn_coins_output(mut commands: Commands, game: Res<Game>, asset_server:
                 TextBundle::from_section(
                     format!("Bag Value"),
                     TextStyle {
-                        font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                        font: asset_server.load(SECONDARY_FONT_NAME),
                         font_size: 32.0,
                         ..default()
                     },
@@ -1233,7 +1236,7 @@ pub fn spawn_score_output(mut commands: Commands, game: Res<Game>, asset_server:
                 TextBundle::from_section(
                     format!("Score: {0}", game.score),
                     TextStyle {
-                        font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                        font: asset_server.load(SECONDARY_FONT_NAME),
                         font_size: 32.0,
                         ..default()
                     },
@@ -1371,7 +1374,7 @@ fn spawn_upgrades_menu(
                         parent.spawn(TextBundle::from_section(
                             upgrade.name.clone(),
                             TextStyle {
-                                font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                font: asset_server.load(PRIMARY_FONT_NAME),
                                 font_size: 32.,
                                 ..default()
                             },
@@ -1379,7 +1382,7 @@ fn spawn_upgrades_menu(
                         parent.spawn(TextBundle::from_section(
                             format!("{0} coins", upgrade.price),
                             TextStyle {
-                                font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                font: asset_server.load(PRIMARY_FONT_NAME),
                                 font_size: 16.,
                                 ..default()
                             },
