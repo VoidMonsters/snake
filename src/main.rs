@@ -10,7 +10,10 @@ use bevy::{
     app::AppExit,
     ecs::system::SystemId,
     prelude::*,
-    render::render_resource::{AsBindGroup, ShaderRef},
+    render::render_resource::{
+        AsBindGroup, 
+        ShaderRef,
+    },
     sprite::{Material2d, Material2dPlugin, MaterialMesh2dBundle},
     window::{PresentMode, WindowMode},
 };
@@ -22,9 +25,10 @@ pub use constants::{FOOD_RADIUS, SNAKE_HEAD_RADIUS};
 
 mod systems;
 use systems::{
-    move_food, player_input, spawn_snake, update_coins_output, update_health, update_high_score,
-    update_score_output, update_health_material, spawn_coins, upgrade_menu_event_handler, upgrade_menu_handler, 
-    debug_output_shown, split_snake, increase_hunger, increase_speed, 
+    debug_output_shown, increase_hunger, increase_speed, move_food, player_input, spawn_coins,
+    spawn_pause_menu, spawn_snake, split_snake, update_coins_output, update_health,
+    update_health_material, update_high_score, update_score_output, upgrade_menu_event_handler,
+    upgrade_menu_handler,
 };
 
 #[derive(Resource)]
@@ -61,12 +65,9 @@ const HIGHSCORE_FILENAME: &str = "highscore.txt";
 
 impl HighScore {
     fn get(&self) -> usize {
-        let scorestr = fs::read_to_string(HIGHSCORE_FILENAME);
-        match scorestr {
-            Ok(scorestr) => match scorestr.parse() {
-                Ok(score) => score,
-                Err(_) => 0,
-            },
+        let high_score_string = fs::read_to_string(HIGHSCORE_FILENAME);
+        match high_score_string {
+            Ok(high_score_string) => high_score_string.parse().unwrap_or_else(|_| 0),
             Err(_) => 0,
         }
     }
@@ -81,7 +82,7 @@ impl HighScore {
 
 const BUTTON_FONT_SIZE: f32 = 30.;
 
-const PRIMARY_FONT_NAME:   &str = "fonts/FiraSans-Bold.ttf";
+const PRIMARY_FONT_NAME: &str = "fonts/FiraSans-Bold.ttf";
 const SECONDARY_FONT_NAME: &str = "fonts/FiraMono-Medium.ttf";
 
 fn get_button() -> ButtonBundle {
@@ -112,6 +113,7 @@ impl From<GameFieldSize> for Vec2 {
         }
     }
 }
+
 
 fn main() {
     let mut app = App::new();
@@ -155,7 +157,8 @@ fn main() {
     .insert_resource(GameFieldSize { x: 1920., y: 1080. })
     .add_event::<UpgradeIconClickedEvent>()
     .add_event::<GameOverEvent>()
-    .add_event::<ButtonHighlightedEvent>()
+    .add_event::<PauseMenuButtonHighlightedEvent>()
+    .add_event::<GameOverButtonHighlightedEvent>()
     .add_event::<RestartEvent>()
     .add_event::<PauseGameEvent>()
     .add_event::<UpgradeMenuButtonClickedEvent>()
@@ -179,10 +182,11 @@ fn main() {
             // these run only while the game over screen is being displayed
             (
                 restart,
-                menu_navigation,
+                game_over_menu_navigation,
                 update_high_score,
                 game_over_menu_selected_button_update,
-                on_restart_clicked,
+                game_over_on_restart_clicked,
+                game_over_on_quit_clicked,
             )
                 .run_if(game_is_over),
             // these run whenever the game is "running" (i.e not paused, and not over)
@@ -206,10 +210,15 @@ fn main() {
             // these run while the upgrades menu is shown
             (on_upgrade_clicked, upgrade_menu_event_handler)
                 .run_if(game_is_paused.and_then(any_with_component::<UpgradesMenu>())),
+            // these run while the pause menu is shown
+            (
+                pause_menu_on_upgrades_clicked,
+                pause_menu_on_quit_clicked,
+                pause_menu_selected_button_update,
+            ).run_if(game_is_paused),
             // these always run, no matter what
             (
                 update_coins_output,
-                on_quit_clicked,
                 show_game_over,
                 pause_menu_event_handler,
                 upgrade_menu_handler,
@@ -249,7 +258,7 @@ fn main() {
                 price: 25.0,
             },
             Upgrade {
-                id: 2,
+                id: 2, // MUST BE UNIQUE! Easiest way is to just sequentially allocate them manually
                 icon: "increase_hunger.png".into(),
                 name: "Stomach Capacity".into(),
                 description: "Allows you to eat more mice before you are full, increasing the length of time it takes for you to die of hunger.".into(),
@@ -307,82 +316,6 @@ pub struct CoinBag {
 
 #[derive(Component)]
 pub struct PauseMenu;
-
-pub fn spawn_pause_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands
-        .spawn((
-            NodeBundle {
-                style: Style {
-                    width: Val::Percent(100.),
-                    height: Val::Percent(100.),
-                    align_items: AlignItems::Center,
-                    justify_content: JustifyContent::Center,
-                    ..default()
-                },
-                visibility: Visibility::Hidden,
-                ..default()
-            },
-            PauseMenu,
-        ))
-        .with_children(|parent| {
-            // container
-            parent
-                .spawn(NodeBundle {
-                    style: Style {
-                        flex_direction: FlexDirection::Column,
-                        align_items: AlignItems::Center,
-                        justify_content: JustifyContent::Center,
-                        ..default()
-                    },
-                    ..default()
-                })
-                .with_children(|parent| {
-                    parent.spawn(TextBundle::from_section(
-                        "Paused",
-                        TextStyle {
-                            font: asset_server.load(PRIMARY_FONT_NAME),
-                            font_size: 72.0,
-                            color: Color::WHITE,
-                        },
-                    ));
-                    parent
-                        .spawn(NodeBundle {
-                            style: Style {
-                                flex_direction: FlexDirection::Column,
-                                align_items: AlignItems::Center,
-                                ..default()
-                            },
-                            ..default()
-                        })
-                        .with_children(|parent| {
-                            parent
-                                .spawn((get_button(), UpgradesButton, PauseMenu))
-                                .with_children(|parent| {
-                                    parent.spawn(TextBundle::from_section(
-                                        "Upgrades",
-                                        TextStyle {
-                                            font: asset_server.load(PRIMARY_FONT_NAME),
-                                            font_size: BUTTON_FONT_SIZE,
-                                            color: Color::WHITE,
-                                        },
-                                    ));
-                                });
-                            parent
-                                .spawn((get_button(), QuitButton, PauseMenu))
-                                .with_children(|parent| {
-                                    parent.spawn(TextBundle::from_section(
-                                        "Quit",
-                                        TextStyle {
-                                            font: asset_server.load(PRIMARY_FONT_NAME),
-                                            font_size: BUTTON_FONT_SIZE,
-                                            color: Color::WHITE,
-                                        },
-                                    ));
-                                });
-                        });
-                });
-        });
-}
 
 #[derive(Resource)]
 pub struct PauseState(bool);
@@ -549,12 +482,12 @@ pub fn pause_menu_event_handler(
     }
 }
 
-pub fn menu_navigation(
+pub fn game_over_menu_navigation(
     gamepads: Res<Gamepads>,
     selected_button: Res<GameOverMenuSelectedButton>,
     mut keys: ResMut<Input<KeyCode>>,
     mut buttons: ResMut<Input<GamepadButton>>,
-    mut ev_button_highlighted: EventWriter<ButtonHighlightedEvent>,
+    mut ev_button_highlighted: EventWriter<GameOverButtonHighlightedEvent>,
     mut ev_restart: EventWriter<RestartEvent>,
     mut ev_quit: EventWriter<AppExit>,
 ) {
@@ -570,10 +503,10 @@ pub fn menu_navigation(
         GameOverMenuSelectedButton::Restart => GameOverMenuSelectedButton::Quit,
     };
     if keys.clear_just_pressed(KeyCode::Right) {
-        ev_button_highlighted.send(ButtonHighlightedEvent(next_button));
+        ev_button_highlighted.send(GameOverButtonHighlightedEvent(next_button));
     }
     if keys.clear_just_pressed(KeyCode::Left) {
-        ev_button_highlighted.send(ButtonHighlightedEvent(prev_button));
+        ev_button_highlighted.send(GameOverButtonHighlightedEvent(prev_button));
     }
     if keys.clear_just_pressed(KeyCode::Return) {
         match *selected_button {
@@ -602,10 +535,10 @@ pub fn menu_navigation(
             button_type: GamepadButtonType::South,
         };
         if buttons.clear_just_pressed(right_button) {
-            ev_button_highlighted.send(ButtonHighlightedEvent(next_button));
+            ev_button_highlighted.send(GameOverButtonHighlightedEvent(next_button));
         }
         if buttons.clear_just_pressed(left_button) {
-            ev_button_highlighted.send(ButtonHighlightedEvent(prev_button));
+            ev_button_highlighted.send(GameOverButtonHighlightedEvent(prev_button));
         }
         if buttons.clear_just_pressed(a_button) {
             match *selected_button {
@@ -624,7 +557,46 @@ pub fn menu_navigation(
 }
 
 #[derive(Event)]
-pub struct ButtonHighlightedEvent(GameOverMenuSelectedButton);
+pub struct GameOverButtonHighlightedEvent(GameOverMenuSelectedButton);
+
+#[derive(Event)]
+pub struct PauseMenuButtonHighlightedEvent(PauseMenuSelectedButton);
+
+pub fn pause_menu_selected_button_update(
+    mut upgrades_button: Query<&mut Style, (With<UpgradesButton>, Without<QuitButton>)>,
+    mut quit_button: Query<
+        &mut Style,
+        (With<QuitButton>, Without<UpgradesButton>, Without<GameOver>),
+    >,
+    mut highlighted_button: ResMut<PauseMenuSelectedButton>,
+    mut ev_button_highlighted: EventReader<PauseMenuButtonHighlightedEvent>,
+) {
+    let mut upgrades_button = upgrades_button.single_mut();
+    let mut quit_button = quit_button.single_mut();
+    for selected_button in ev_button_highlighted.read() {
+        match selected_button {
+            PauseMenuButtonHighlightedEvent(PauseMenuSelectedButton::None) => {
+                upgrades_button.border = UiRect::default();
+                upgrades_button.margin.bottom = Val::Px(0.);
+                quit_button.border = UiRect::default();
+                quit_button.margin.bottom = Val::Px(0.);
+            }
+            PauseMenuButtonHighlightedEvent(PauseMenuSelectedButton::Upgrades) => {
+                upgrades_button.border = UiRect::bottom(Val::Px(2.));
+                upgrades_button.margin.bottom = Val::Px(-2.);
+                quit_button.border = UiRect::default();
+                quit_button.margin.bottom = Val::Px(0.);
+            }
+            PauseMenuButtonHighlightedEvent(PauseMenuSelectedButton::Quit) => {
+                upgrades_button.border = UiRect::default();
+                upgrades_button.margin.bottom = Val::Px(0.);
+                quit_button.border = UiRect::bottom(Val::Px(2.0));
+                quit_button.margin.bottom = Val::Px(-2.);
+            }
+        }
+        *highlighted_button = selected_button.0.clone();
+    }
+}
 
 pub fn game_over_menu_selected_button_update(
     mut restart_button: Query<&mut Style, (With<RestartButton>, Without<QuitButton>)>,
@@ -633,25 +605,25 @@ pub fn game_over_menu_selected_button_update(
         (With<QuitButton>, Without<RestartButton>, Without<PauseMenu>),
     >,
     mut highlighted_button: ResMut<GameOverMenuSelectedButton>,
-    mut ev_button_highlighted: EventReader<ButtonHighlightedEvent>,
+    mut ev_button_highlighted: EventReader<GameOverButtonHighlightedEvent>,
 ) {
     let mut restart_button = restart_button.single_mut();
     let mut quit_button = quit_button.single_mut();
     for selected_button in ev_button_highlighted.read() {
         match selected_button {
-            ButtonHighlightedEvent(GameOverMenuSelectedButton::None) => {
+            GameOverButtonHighlightedEvent(GameOverMenuSelectedButton::None) => {
                 restart_button.border = UiRect::default();
                 restart_button.margin.bottom = Val::Px(0.);
                 quit_button.border = UiRect::default();
                 quit_button.margin.bottom = Val::Px(0.);
             }
-            ButtonHighlightedEvent(GameOverMenuSelectedButton::Restart) => {
+            GameOverButtonHighlightedEvent(GameOverMenuSelectedButton::Restart) => {
                 restart_button.border = UiRect::bottom(Val::Px(2.));
                 restart_button.margin.bottom = Val::Px(-2.);
                 quit_button.border = UiRect::default();
                 quit_button.margin.bottom = Val::Px(0.);
             }
-            ButtonHighlightedEvent(GameOverMenuSelectedButton::Quit) => {
+            GameOverButtonHighlightedEvent(GameOverMenuSelectedButton::Quit) => {
                 restart_button.border = UiRect::default();
                 restart_button.margin.bottom = Val::Px(0.);
                 quit_button.border = UiRect::bottom(Val::Px(2.0));
@@ -771,9 +743,9 @@ pub fn restart(
 #[derive(Event, Default)]
 pub struct RestartEvent;
 
-pub fn on_restart_clicked(
+pub fn game_over_on_restart_clicked(
     mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<RestartButton>)>,
-    mut ev_select_button: EventWriter<ButtonHighlightedEvent>,
+    mut ev_select_button: EventWriter<GameOverButtonHighlightedEvent>,
     mut ev_restart: EventWriter<RestartEvent>,
 ) {
     for interaction in &mut interaction_query {
@@ -782,10 +754,10 @@ pub fn on_restart_clicked(
                 ev_restart.send_default();
             }
             Interaction::Hovered => {
-                ev_select_button.send(ButtonHighlightedEvent(GameOverMenuSelectedButton::Restart));
+                ev_select_button.send(GameOverButtonHighlightedEvent(GameOverMenuSelectedButton::Restart));
             }
             Interaction::None => {
-                ev_select_button.send(ButtonHighlightedEvent(GameOverMenuSelectedButton::None));
+                ev_select_button.send(GameOverButtonHighlightedEvent(GameOverMenuSelectedButton::None));
             }
         }
     }
@@ -813,10 +785,50 @@ pub fn on_upgrade_clicked(
     }
 }
 
-pub fn on_quit_clicked(
+pub fn pause_menu_on_quit_clicked(
+    mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<QuitButton>)>,
+    mut ev_select_button: EventWriter<PauseMenuButtonHighlightedEvent>,
+    mut ev_exit: EventWriter<AppExit>,
+) { 
+    for interaction in &mut interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                ev_exit.send_default();
+            }
+            Interaction::Hovered => {
+                ev_select_button.send(PauseMenuButtonHighlightedEvent(PauseMenuSelectedButton::Quit));
+            }
+            Interaction::None => {
+                ev_select_button.send(PauseMenuButtonHighlightedEvent(PauseMenuSelectedButton::None));
+            }
+        }
+    }
+}
+
+pub fn pause_menu_on_upgrades_clicked(
+    mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<UpgradesButton>)>,
+    mut ev_select_button: EventWriter<PauseMenuButtonHighlightedEvent>,
+    mut ev_upgrades_menu: EventWriter<UpgradeMenuButtonClickedEvent>,
+) { 
+    for interaction in &mut interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                ev_upgrades_menu.send_default();
+            }
+            Interaction::Hovered => {
+                ev_select_button.send(PauseMenuButtonHighlightedEvent(PauseMenuSelectedButton::Upgrades));
+            }
+            Interaction::None => {
+                ev_select_button.send(PauseMenuButtonHighlightedEvent(PauseMenuSelectedButton::None));
+            }
+        }
+    }
+}
+
+pub fn game_over_on_quit_clicked(
     mut interaction_query: Query<&Interaction, (Changed<Interaction>, With<QuitButton>)>,
     mut app_exit_events: EventWriter<AppExit>,
-    mut ev_select_button: EventWriter<ButtonHighlightedEvent>,
+    mut ev_select_button: EventWriter<GameOverButtonHighlightedEvent>,
 ) {
     for interaction in &mut interaction_query {
         match *interaction {
@@ -824,10 +836,10 @@ pub fn on_quit_clicked(
                 app_exit_events.send_default();
             }
             Interaction::Hovered => {
-                ev_select_button.send(ButtonHighlightedEvent(GameOverMenuSelectedButton::Quit));
+                ev_select_button.send(GameOverButtonHighlightedEvent(GameOverMenuSelectedButton::Quit));
             }
             Interaction::None => {
-                ev_select_button.send(ButtonHighlightedEvent(GameOverMenuSelectedButton::None));
+                ev_select_button.send(GameOverButtonHighlightedEvent(GameOverMenuSelectedButton::None));
             }
         }
     }
@@ -918,7 +930,7 @@ pub fn spawn_game_over_splash(mut commands: Commands, asset_server: Res<AssetSer
                         })
                         .with_children(|parent| {
                             parent
-                                .spawn((get_button(), RestartButton))
+                                .spawn((get_button(), RestartButton, GameOver))
                                 .with_children(|parent| {
                                     parent.spawn(TextBundle::from_section(
                                         "Restart",
@@ -930,7 +942,7 @@ pub fn spawn_game_over_splash(mut commands: Commands, asset_server: Res<AssetSer
                                     ));
                                 });
                             parent
-                                .spawn((get_button(), QuitButton))
+                                .spawn((get_button(), QuitButton, GameOver))
                                 .with_children(|parent| {
                                     parent.spawn(TextBundle::from_section(
                                         "Quit",

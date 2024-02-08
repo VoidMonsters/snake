@@ -42,3 +42,6 @@ pub use spawn_coins::spawn_coins;
 
 mod debug_output_shown;
 pub use debug_output_shown::debug_output_shown;
+
+mod spawn_pause_menu;
+pub use spawn_pause_menu::spawn_pause_menu;
