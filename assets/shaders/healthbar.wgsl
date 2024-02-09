@@ -8,12 +8,10 @@ struct HealthbarMaterial {
 
 @fragment
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
+    let black_amount = smoothstep(u.health - 0.1, u.health + 0.1, mesh.uv.x);
     let lowHealthColor = vec4<f32>(1.0, 0.0, 0.0, 1.0); 
     let highHealthColor = vec4<f32>(0.0, 1.0, 0.0, 1.0);
+    let black = vec4<f32>(0.0, 0.0, 0.0, 1.0);
 
-    if mesh.uv.x > u.health {
-        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
-    }
-
-    return mix(lowHealthColor, highHealthColor, u.health);
+    return mix(mix(lowHealthColor, highHealthColor, u.health), black, black_amount);
 }
