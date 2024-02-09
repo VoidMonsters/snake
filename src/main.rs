@@ -655,7 +655,7 @@ pub fn collide_with_self(
 }
 
 pub fn show_game_over(
-    mut game_over_visibility: Query<&mut Visibility, With<GameOver>>,
+    mut game_over_visibility: Query<&mut Visibility, (With<GameOver>, Without<QuitButton>, Without<RestartButton>)>,
     mut ev_game_over: EventReader<GameOverEvent>,
     mut game: ResMut<Game>,
 ) {
@@ -692,7 +692,7 @@ pub fn restart(
     mut commands: Commands,
     mut game: ResMut<Game>,
     snake_tail: Query<Entity, With<SnakeTailNode>>,
-    mut game_over_visibility: Query<&mut Visibility, With<GameOver>>,
+    mut game_over_visibility: Query<&mut Visibility, (With<GameOver>, Without<RestartButton>, Without<QuitButton>)>,
     mut snake_head: Query<(&mut Transform, &mut Velocity), With<Snake>>,
     mut snake: Query<&mut Snake>,
     food_entity: Query<Entity, With<Food>>,

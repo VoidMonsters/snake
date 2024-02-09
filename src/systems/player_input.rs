@@ -68,15 +68,27 @@ pub fn player_input(
             *head_velocity = *head_velocity + player_requested_velocity;
         }
         let (mut camera_projection, mut camera_transform) = camera_projection.single_mut();
-        if let (Some(x), Some(y)) = (axes.get(axis_rx), axes.get(axis_ry)) {
-            let right_stick_pos = Vec3::new(x, y, 0.);
-            camera_transform.translation += right_stick_pos * 100.;
-        }
         if let (Some(rt), Some(lt)) = (button_axes.get(axis_rt), button_axes.get(axis_lt)) {
             let total_zoom = (lt - rt).clamp(-0.7, 1.0);
             camera_projection.scale = 1.0 + total_zoom;
         }
-        if camera_settings.follow_snake || camera_projection.scale != 1.0 {
+        if let (Some(x), Some(y)) = (axes.get(axis_rx), axes.get(axis_ry)) {
+            let right_stick_pos = Vec3::new(x, y, 0.);
+            // apply a deadzone to prevent stick drift, deadzone is hardcoded here because fuck
+            // you, that's why.
+            if right_stick_pos.length() > 0.1 {
+                // todo: make camera sensitivity configurable, once we have a Settings menu
+                camera_transform.translation += right_stick_pos * 5.;
+            }
+        }
+        let r3_button = GamepadButton {
+            gamepad,
+            button_type: GamepadButtonType::RightThumb,
+        };
+        if buttons.clear_just_pressed(r3_button) {
+            camera_transform.translation = Vec3::ZERO;
+        }
+        if camera_settings.follow_snake {
             let camera_origin = head_transform.translation;
             camera_transform.translation = camera_origin;
         } 
