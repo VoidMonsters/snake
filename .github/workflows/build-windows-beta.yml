@@ -1,0 +1,42 @@
+---
+name: Build Snake.exe for Windows
+
+on:
+  push:
+    branches: [ "develop" ]
+  pull_request:
+    branches: [ "develop" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: windows-latest
+    environment: Itch.io - Hyperfocusaurus
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build
+      run: cargo build --release --verbose
+    - name: Package
+      run: |
+          mkdir dist
+          mkdir dist\assets
+          xcopy /y /s .\assets\* .\dist\assets\
+          xcopy /y .\target\release\snake.exe .\dist\
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v4.1.0
+      with:
+        # Artifact name
+        name: snake
+        # A file, directory or wildcard pattern that describes what to upload
+        path: dist\*
+    - name: Setup butler
+      uses: jdno/setup-butler@v1
+    - name: Publish to Itch.io
+      run: butler push dist hyperfocusaurus/snake:windows-beta
+      env:
+        BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+
