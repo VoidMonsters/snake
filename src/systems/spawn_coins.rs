@@ -4,6 +4,7 @@ use crate::{
     FOOD_LAYER,
     CoinBag,
     RandNormalized,
+    GameFieldSize,
 };
 
 use rand::Rng;
@@ -11,11 +12,10 @@ use rand::Rng;
 // the minimum distance from the edge of the screen that coins spawn at
 const COIN_BOUNDARY: f32 = 128.;
 
-pub fn spawn_coins(mut commands: Commands, asset_server: Res<AssetServer>, window: Query<&Window>) {
+pub fn spawn_coins(mut commands: Commands, asset_server: Res<AssetServer>, gamefield_size: Res<GameFieldSize>) {
     let mut coins_location = Vec3::random();
-    let window = window.single();
-    let boundary_x = (window.resolution.width() / 2.) - COIN_BOUNDARY;
-    let boundary_y = (window.resolution.height() / 2.) - COIN_BOUNDARY;
+    let boundary_x = (gamefield_size.x / 2.) - COIN_BOUNDARY;
+    let boundary_y = (gamefield_size.y / 2.) - COIN_BOUNDARY;
 
     coins_location.x -= 0.5;
     coins_location.y -= 0.5;

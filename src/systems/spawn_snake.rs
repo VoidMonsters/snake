@@ -25,7 +25,7 @@ pub fn spawn_snake(
                 .add(shape::Circle::new(SNAKE_HEAD_RADIUS).into())
                 .into(),
             material: color_materials.add(ColorMaterial::from(Color::GREEN)),
-            transform: Transform::from_translation(Vec3::new(-150., 0., 0.)),
+            transform: Transform::from_translation(Vec3::new(-0., 0., 0.)),
             ..default()
         },
         Velocity(Vec3::ZERO),

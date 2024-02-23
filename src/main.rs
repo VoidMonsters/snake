@@ -704,7 +704,6 @@ pub fn restart(
     mut hunger_rate: ResMut<HungerRate>,
     food_entity: Query<Entity, With<Food>>,
     coinbag_entity: Query<Entity, With<CoinBag>>,
-    window: Query<&Window>,
 ) {
     if !ev_restart.is_empty() {
         ev_restart.clear();
@@ -715,16 +714,7 @@ pub fn restart(
         }
         let mut game_over_visibility = game_over_visibility.single_mut();
         *game_over_visibility = Visibility::Hidden;
-        let window = window.single();
-        let mut snake_head_location = Vec3::random();
-        let boundary_x = (window.resolution.width() / 2.) - SNAKE_HEAD_RADIUS;
-        let boundary_y = (window.resolution.height() / 2.) - SNAKE_HEAD_RADIUS;
-
-        snake_head_location.x -= 0.5;
-        snake_head_location.y -= 0.5;
-
-        snake_head_location.x *= boundary_x * 2.;
-        snake_head_location.y *= boundary_y * 2.;
+        let mut snake_head_location = Vec3::ZERO;
 
         snake_head_location.z = PLAYER_LAYER;
         let snake_head = snake_head.single_mut();
