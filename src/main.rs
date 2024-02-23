@@ -141,10 +141,7 @@ fn main() {
     ))
     .insert_resource(SnakeMaxHealth(100.))
     .insert_resource(HungerRate::default())
-    .insert_resource(SnakeSpeed {
-        analog: 500.,
-        discrete: 10.,
-    })
+    .insert_resource(SnakeSpeed::default())
     .insert_resource(Game {
         game_over: false,
         score: 0,
@@ -281,6 +278,15 @@ fn main() {
 pub struct SnakeSpeed {
     analog: f32,
     discrete: f32,
+}
+
+impl Default for SnakeSpeed {
+    fn default() -> Self {
+        SnakeSpeed {
+            analog: 750.,
+            discrete: 12.5,
+        }
+    }
 }
 
 #[derive(Resource)]
@@ -959,7 +965,7 @@ pub fn spawn_game_over_splash(mut commands: Commands, asset_server: Res<AssetSer
 }
 
 const TAIL_NODE_GAP: f32 = 50.;
-const TAIL_CATCHUP_SPEED: f32 = 7.;
+const TAIL_CATCHUP_SPEED: f32 = 9.;
 
 pub fn move_tail(
     time: Res<Time>,
