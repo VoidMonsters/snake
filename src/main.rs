@@ -34,6 +34,12 @@ use systems::{
 #[derive(Resource)]
 pub struct HungerRate(f32);
 
+impl Default for HungerRate {
+    fn default() -> Self {
+        Self(5.)
+    }
+}
+
 // visual layers
 const PLAYER_LAYER: f32 = 0.;
 const FOOD_LAYER: f32 = -1.;
@@ -134,7 +140,7 @@ fn main() {
         UiMaterialPlugin::<IconHoverEffectMaterial>::default(),
     ))
     .insert_resource(SnakeMaxHealth(100.))
-    .insert_resource(HungerRate(5.))
+    .insert_resource(HungerRate::default())
     .insert_resource(SnakeSpeed {
         analog: 500.,
         discrete: 10.,
@@ -695,6 +701,7 @@ pub fn restart(
     mut game_over_visibility: Query<&mut Visibility, (With<GameOver>, Without<RestartButton>, Without<QuitButton>)>,
     mut snake_head: Query<(&mut Transform, &mut Velocity), With<Snake>>,
     mut snake: Query<&mut Snake>,
+    mut hunger_rate: ResMut<HungerRate>,
     food_entity: Query<Entity, With<Food>>,
     coinbag_entity: Query<Entity, With<CoinBag>>,
     window: Query<&Window>,
@@ -727,6 +734,8 @@ pub fn restart(
 
         let mut snake = snake.single_mut();
         snake.health = 100.;
+
+        *hunger_rate = HungerRate::default();
 
         if !coinbag_entity.is_empty() {
             let coinbag_entity = coinbag_entity.single();
